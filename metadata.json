@@ -1,0 +1,6 @@
+{
+  "name": "PPIC Production Monitoring",
+  "description": "Enterprise PPIC production planning, Excel ingestion, stage tracking, Gantt scheduling, and delivery control system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
