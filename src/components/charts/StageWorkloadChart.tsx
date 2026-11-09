@@ -33,65 +33,92 @@ export const StageWorkloadChart: React.FC<StageWorkloadChartProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-5">
         {stages.map((stage) => {
           const backlog = Math.max(0, stage.targetQty - stage.actualQty);
+          const hasSewingIssues =
+            stage.stageName === 'Sewing' &&
+            ((stage.repairCount && stage.repairCount > 0) ||
+              (stage.reworkCount && stage.reworkCount > 0) ||
+              (stage.repairQty && stage.repairQty > 0) ||
+              (stage.reworkQty && stage.reworkQty > 0));
 
           return (
             <div
               key={stage.stageName}
-              className={`p-3.5 rounded-lg border transition-all ${
+              className={`p-3 rounded-lg border transition-all flex flex-col justify-between ${
                 stage.isBottleneck
-                  ? 'border-amber-300 bg-amber-50/40 shadow-xs'
+                  ? 'border-amber-300 bg-amber-50/50 shadow-xs'
                   : 'border-slate-200 bg-slate-50/50'
               }`}
             >
-              <div className="flex items-start justify-between gap-1 mb-2">
-                <span className="font-semibold text-xs text-slate-900 truncate">
-                  {stage.stageName}
-                </span>
-                {stage.isBottleneck && (
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-100/80 px-1.5 py-0.5 rounded">
-                    <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                    Bottleneck
+              <div>
+                <div className="flex items-start justify-between gap-1 mb-2">
+                  <span className="font-bold text-xs text-slate-900 truncate" title={stage.stageName}>
+                    {stage.stageName}
                   </span>
-                )}
+                  {stage.isBottleneck && (
+                    <span className="flex items-center gap-0.5 text-[10px] font-semibold text-amber-800 bg-amber-100 px-1 py-0.5 rounded shrink-0">
+                      <AlertCircle className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                      Bottleneck
+                    </span>
+                  )}
+                </div>
+
+                <div className="space-y-1 mb-2.5 text-[11px]">
+                  <div className="flex items-center justify-between text-slate-500 font-mono">
+                    <span>Target:</span>
+                    <span className="font-medium text-slate-800">{stage.targetQty.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-500 font-mono">
+                    <span>Output:</span>
+                    <span className="font-medium text-emerald-700">{stage.actualQty.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-500 font-mono">
+                    <span>Sisa:</span>
+                    <span className={`font-semibold ${backlog > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
+                      {backlog.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      stage.completionRate >= 100
+                        ? 'bg-emerald-600'
+                        : stage.isBottleneck
+                        ? 'bg-amber-500'
+                        : 'bg-blue-600'
+                    }`}
+                    style={{ width: `${Math.min(100, stage.completionRate)}%` }}
+                  />
+                </div>
+                <div className="flex justify-between items-center mt-1.5 text-[10px] text-slate-500 font-mono">
+                  <span>{stage.moCount} MO</span>
+                  <span className="font-semibold text-slate-700">{stage.completionRate}%</span>
+                </div>
               </div>
 
-              <div className="space-y-1 mb-3 text-xs">
-                <div className="flex items-center justify-between text-slate-500 font-mono">
-                  <span>Target:</span>
-                  <span className="font-medium text-slate-800">{stage.targetQty.toLocaleString()}</span>
+              {/* Sewing Repair / Rework Breakdown (Section 3: Repair/Rework only on Sewing) */}
+              {hasSewingIssues && (
+                <div className="mt-2.5 pt-2 border-t border-slate-200 text-[10px] font-mono space-y-1">
+                  <span className="text-[10px] font-semibold text-slate-600 block">Kondisi Sewing:</span>
+                  <div className="flex flex-col gap-1">
+                    {(stage.repairCount || 0) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold truncate">
+                        Repair: {stage.repairCount} MO {stage.repairQty ? `(${stage.repairQty} pcs)` : ''}
+                      </span>
+                    )}
+                    {(stage.reworkCount || 0) > 0 && (
+                      <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-semibold truncate">
+                        Rework: {stage.reworkCount} MO {stage.reworkQty ? `(${stage.reworkQty} pcs)` : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center justify-between text-slate-500 font-mono">
-                  <span>Output:</span>
-                  <span className="font-medium text-emerald-700">{stage.actualQty.toLocaleString()}</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-500 font-mono">
-                  <span>Sisa Backlog:</span>
-                  <span className={`font-semibold ${backlog > 0 ? 'text-amber-700' : 'text-slate-400'}`}>
-                    {backlog.toLocaleString()}
-                  </span>
-                </div>
-              </div>
-
-              {/* Mini progress */}
-              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-300 ${
-                    stage.completionRate >= 100
-                      ? 'bg-emerald-600'
-                      : stage.isBottleneck
-                      ? 'bg-amber-500'
-                      : 'bg-blue-600'
-                  }`}
-                  style={{ width: `${Math.min(100, stage.completionRate)}%` }}
-                />
-              </div>
-              <div className="flex justify-between items-center mt-1.5 text-[11px] text-slate-500 font-mono">
-                <span>{stage.moCount} MO</span>
-                <span className="font-semibold text-slate-700">{stage.completionRate}%</span>
-              </div>
+              )}
             </div>
           );
         })}

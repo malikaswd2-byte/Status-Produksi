@@ -7,6 +7,7 @@ import {
   FilterState,
   DeliverySchedule,
   ProductionSchedule,
+  STANDARD_PRODUCTION_STAGES,
 } from '../types/ppic';
 
 /**
@@ -177,17 +178,35 @@ export function aggregateWorkCenters(orders: ManufacturingOrder[]): WorkCenterSu
 }
 
 /**
- * Aggregate metrics by Production Stage and identify bottlenecks.
+ * Aggregate metrics by Production Stage following the 7 standardized stages in exact sequence:
+ * 1. Cutting
+ * 2. Sewing (includes Repair & Rework monitoring)
+ * 3. Penerimaan Ironning
+ * 4. Ironning
+ * 5. QC Finishing
+ * 6. QC Ukur
+ * 7. QA
  */
 export function aggregateProductionStages(orders: ManufacturingOrder[]): ProductionStageSummary[] {
+  // Map of orders per stage
   const stageMap = new Map<string, ManufacturingOrder[]>();
 
+  // Initialize with standard stages to guarantee ordering
+  for (const stdStage of STANDARD_PRODUCTION_STAGES) {
+    stageMap.set(stdStage, []);
+  }
+
   for (const order of orders) {
-    const stage = order.productionStage || 'Unassigned';
-    if (!stageMap.has(stage)) {
-      stageMap.set(stage, []);
+    const rawStage = order.productionStage?.trim() || 'Cutting';
+    // Match against standard stage (case-insensitive fuzzy match)
+    const matchedStd = STANDARD_PRODUCTION_STAGES.find(
+      (s) => s.toLowerCase() === rawStage.toLowerCase()
+    );
+    const key = matchedStd || rawStage;
+    if (!stageMap.has(key)) {
+      stageMap.set(key, []);
     }
-    stageMap.get(stage)!.push(order);
+    stageMap.get(key)!.push(order);
   }
 
   const rawList: ProductionStageSummary[] = [];
@@ -202,8 +221,38 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
     const completionRate =
       targetQty > 0 ? Math.min(100, Math.round((actualQty / targetQty) * 100)) : 0;
 
+    const stdIndex = STANDARD_PRODUCTION_STAGES.indexOf(
+      stageName as (typeof STANDARD_PRODUCTION_STAGES)[number]
+    );
+    const stageIndex = stdIndex !== -1 ? stdIndex : 999;
+
+    // Sewing-specific Repair & Rework tracking
+    let repairCount = 0;
+    let reworkCount = 0;
+    let repairQty = 0;
+    let reworkQty = 0;
+
+    if (stageName === 'Sewing') {
+      for (const ord of orderList) {
+        if (ord.sewingCondition === 'Repair') {
+          repairCount++;
+          repairQty += Number(ord.repairQty || ord.actualQty || 0);
+        } else if (ord.sewingCondition === 'Rework') {
+          reworkCount++;
+          reworkQty += Number(ord.reworkQty || ord.actualQty || 0);
+        } else if (ord.notes && /repair/i.test(ord.notes)) {
+          repairCount++;
+          repairQty += Number(ord.repairQty || 0);
+        } else if (ord.notes && /rework/i.test(ord.notes)) {
+          reworkCount++;
+          reworkQty += Number(ord.reworkQty || 0);
+        }
+      }
+    }
+
     rawList.push({
       stageName,
+      stageIndex,
       workCenters,
       moCount: uniqueMOs.size,
       styleCount: uniqueStyles.size,
@@ -211,10 +260,14 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
       actualQty,
       completionRate,
       isBottleneck: false,
+      repairCount,
+      reworkCount,
+      repairQty,
+      reworkQty,
     });
   }
 
-  // Determine bottleneck: find the stage with the highest unfinished backlog (targetQty - actualQty)
+  // Determine bottleneck: find the stage with highest unfinished backlog (targetQty - actualQty)
   let maxBacklog = -1;
   let bottleneckIndex = -1;
 
@@ -230,27 +283,35 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
     rawList[bottleneckIndex].isBottleneck = true;
   }
 
-  return rawList.sort((a, b) => b.targetQty - a.targetQty);
+  // Strict sorting by the 7 standard stages sequence
+  return rawList.sort((a, b) => a.stageIndex - b.stageIndex);
 }
 
 /**
- * QA status color map conforming to enterprise palette and accessibility standards.
+ * QA status color map conforming to enterprise standards.
+ * CRITICAL RULE: QA does NOT have Repair or Rework status.
  */
 const QA_COLORS: Record<string, string> = {
   Passed: '#16a34a',     // Green
   Approved: '#16a34a',
+  Lulus: '#16a34a',
+  OK: '#16a34a',
   'In-Inspection': '#0284c7', // Sky Blue
   Checking: '#0284c7',
-  Rework: '#d97706',     // Amber
-  Repair: '#d97706',
+  Inspeksi: '#0284c7',
   Rejected: '#dc2626',   // Crimson
+  Gagal: '#dc2626',
+  NG: '#dc2626',
+  Reject: '#dc2626',
   Scrap: '#dc2626',
   Pending: '#64748b',    // Slate
-  'Not Inspected': '#94a3b8',
 };
 
 /**
- * Aggregate QA Status with percentage calculations.
+ * Aggregate QA Status based on ACTUAL data only.
+ * Rules:
+ * - QA does NOT have Repair or Rework status.
+ * - Do not invent synthetic QA status if absent.
  */
 export function aggregateQAStatus(orders: ManufacturingOrder[]): QARecord[] {
   if (orders.length === 0) return [];
@@ -260,7 +321,8 @@ export function aggregateQAStatus(orders: ManufacturingOrder[]): QARecord[] {
 
   for (const order of orders) {
     const qa = order.qaStatus?.trim();
-    if (qa) {
+    // Exclude empty and forbid Repair/Rework in QA
+    if (qa && !/repair|rework/i.test(qa)) {
       counts[qa] = (counts[qa] || 0) + 1;
       totalWithQA++;
     }

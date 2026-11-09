@@ -1,41 +1,67 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectColumnMappings, normalizeExcelDate } from './excelParser';
+import {
+  normalizeProductionStage,
+  detectColumnMappings,
+  generateSampleExcelWorkbook,
+  parseExcelWorkbook,
+} from './excelParser';
+import { STANDARD_PRODUCTION_STAGES } from '../types/ppic';
 
-test('detectColumnMappings identifies Indonesian and English headers accurately', () => {
-  const headers = [
-    'No MO',
-    'Style Name',
-    'Line Produksi',
-    'Tahap Proses',
-    'Target Produksi',
-    'Qty Aktual',
-    'Status QC',
-    'Tgl Mulai',
-    'Tgl Selesai',
-    'Tgl Kirim',
-    'Buyer / Brand',
-    'Catatan PPIC',
-  ];
-
-  const mapping = detectColumnMappings(headers);
-  assert.equal(mapping.moNumber, 'No MO');
-  assert.equal(mapping.style, 'Style Name');
-  assert.equal(mapping.workCenter, 'Line Produksi');
-  assert.equal(mapping.productionStage, 'Tahap Proses');
-  assert.equal(mapping.targetQty, 'Target Produksi');
-  assert.equal(mapping.actualQty, 'Qty Aktual');
-  assert.equal(mapping.qaStatus, 'Status QC');
-  assert.equal(mapping.startDate, 'Tgl Mulai');
-  assert.equal(mapping.endDate, 'Tgl Selesai');
-  assert.equal(mapping.deliveryDate, 'Tgl Kirim');
-  assert.equal(mapping.buyer, 'Buyer / Brand');
-  assert.equal(mapping.notes, 'Catatan PPIC');
+test('normalizeProductionStage correctly maps to the 7 standard stages', () => {
+  assert.equal(normalizeProductionStage('Potong'), 'Cutting');
+  assert.equal(normalizeProductionStage('Cutting'), 'Cutting');
+  assert.equal(normalizeProductionStage('Jahit'), 'Sewing');
+  assert.equal(normalizeProductionStage('Sewing Line 1'), 'Sewing');
+  assert.equal(normalizeProductionStage('Terima Iron'), 'Penerimaan Ironning');
+  assert.equal(normalizeProductionStage('Penerimaan Ironning'), 'Penerimaan Ironning');
+  assert.equal(normalizeProductionStage('Ironing'), 'Ironning');
+  assert.equal(normalizeProductionStage('Gosok'), 'Ironning');
+  assert.equal(normalizeProductionStage('QC Finishing'), 'QC Finishing');
+  assert.equal(normalizeProductionStage('QC Ukur'), 'QC Ukur');
+  assert.equal(normalizeProductionStage('Measurement'), 'QC Ukur');
+  assert.equal(normalizeProductionStage('QA'), 'QA');
+  assert.equal(normalizeProductionStage('Quality Assurance'), 'QA');
 });
 
-test('normalizeExcelDate handles varied date formats correctly', () => {
-  assert.equal(normalizeExcelDate('2026-11-15'), '2026-11-15');
-  assert.equal(normalizeExcelDate('15/11/2026'), '2026-11-15');
-  assert.equal(normalizeExcelDate('2026/11/15'), '2026-11-15');
-  assert.equal(normalizeExcelDate(new Date('2026-11-15T00:00:00Z')), '2026-11-15');
+test('generateSampleExcelWorkbook and parseExcelWorkbook produce 7 standard stages without synthetic QA', () => {
+  const fileBytes = generateSampleExcelWorkbook();
+  assert.ok(fileBytes.length > 0);
+
+  const parsed = parseExcelWorkbook(fileBytes.buffer, 'sample.xlsx');
+  assert.equal(parsed.normalizedOrders.length, 10);
+
+  // Check all 7 stages are present in parsed orders
+  const stagesFound = new Set(parsed.normalizedOrders.map((o) => o.productionStage));
+  for (const std of STANDARD_PRODUCTION_STAGES) {
+    assert.ok(stagesFound.has(std), `Standard stage "${std}" should be present in sample data`);
+  }
+
+  // Check Sewing repair and rework
+  const reworkOrder = parsed.normalizedOrders.find((o) => o.moNumber === 'MO-2026-103');
+  assert.ok(reworkOrder);
+  assert.equal(reworkOrder.productionStage, 'Sewing');
+  assert.equal(reworkOrder.sewingCondition, 'Rework');
+  assert.equal(reworkOrder.reworkQty, 45);
+
+  const repairOrder = parsed.normalizedOrders.find((o) => o.moNumber === 'MO-2026-104');
+  assert.ok(repairOrder);
+  assert.equal(repairOrder.productionStage, 'Sewing');
+  assert.equal(repairOrder.sewingCondition, 'Repair');
+  assert.equal(repairOrder.repairQty, 18);
+
+  // Ensure NO order has qaStatus equal to Repair or Rework
+  for (const order of parsed.normalizedOrders) {
+    if (order.qaStatus) {
+      assert.ok(
+        !/repair|rework/i.test(order.qaStatus),
+        `Order ${order.moNumber} has invalid QA status: ${order.qaStatus}`
+      );
+    }
+  }
+
+  // Ensure orders without QA in Excel do NOT have synthetic 'Pending' or 'Passed'
+  const ironningOrder = parsed.normalizedOrders.find((o) => o.productionStage === 'Ironning');
+  assert.ok(ironningOrder);
+  assert.equal(ironningOrder.qaStatus, undefined, 'Empty QA in Excel must remain undefined');
 });

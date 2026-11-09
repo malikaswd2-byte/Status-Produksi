@@ -66,19 +66,24 @@ export const MODetailModal: React.FC = () => {
                   <h3 className="text-base font-bold text-slate-900 font-mono tracking-tight">
                     {selectedMO.moNumber}
                   </h3>
-                  <span
-                    className={`text-xs px-2 py-0.5 rounded font-medium ${
-                      selectedMO.qaStatus === 'Passed'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : selectedMO.qaStatus === 'Rework'
-                        ? 'bg-amber-100 text-amber-800'
-                        : selectedMO.qaStatus === 'Rejected'
-                        ? 'bg-rose-100 text-rose-800'
-                        : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    QA: {selectedMO.qaStatus || 'Pending'}
-                  </span>
+                  {selectedMO.sewingCondition && selectedMO.sewingCondition !== 'Normal' && (
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded font-medium ${
+                        selectedMO.sewingCondition === 'Rework'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                          : 'bg-amber-100 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      Sewing: {selectedMO.sewingCondition}
+                      {selectedMO.repairQty ? ` (${selectedMO.repairQty} pcs)` : ''}
+                      {selectedMO.reworkQty ? ` (${selectedMO.reworkQty} pcs)` : ''}
+                    </span>
+                  )}
+                  {selectedMO.qaStatus && (
+                    <span className="text-xs px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      QA: {selectedMO.qaStatus}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {selectedMO.style} {selectedMO.buyer ? `· Buyer: ${selectedMO.buyer}` : ''}
@@ -153,6 +158,22 @@ export const MODetailModal: React.FC = () => {
                     <span className="text-slate-500">Tahap Produksi:</span>
                     <span className="font-semibold text-slate-800">{selectedMO.productionStage}</span>
                   </div>
+                  {selectedMO.productionStage === 'Sewing' && (selectedMO.sewingCondition || selectedMO.repairQty || selectedMO.reworkQty) && (
+                    <div className="flex justify-between bg-amber-50/70 p-2 rounded border border-amber-200/60">
+                      <span className="text-amber-800 font-medium">Kondisi Sewing:</span>
+                      <span className="font-semibold text-amber-900">
+                        {selectedMO.sewingCondition || 'Normal'}
+                        {selectedMO.repairQty ? ` (Repair: ${selectedMO.repairQty} pcs)` : ''}
+                        {selectedMO.reworkQty ? ` (Rework: ${selectedMO.reworkQty} pcs)` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {selectedMO.qaStatus && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Hasil QA:</span>
+                      <span className="font-medium text-emerald-800">{selectedMO.qaStatus}</span>
+                    </div>
+                  )}
                   {selectedMO.buyer && (
                     <div className="flex justify-between">
                       <span className="text-slate-500">Buyer:</span>

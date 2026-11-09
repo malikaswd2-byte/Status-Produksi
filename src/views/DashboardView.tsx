@@ -224,7 +224,20 @@ export const DashboardView: React.FC = () => {
                       </td>
                       <td className="py-2.5 px-4 font-medium text-slate-800">{order.style}</td>
                       <td className="py-2.5 px-4 text-slate-600">{order.workCenter}</td>
-                      <td className="py-2.5 px-4 text-slate-600">{order.productionStage}</td>
+                      <td className="py-2.5 px-4 text-slate-600">
+                        <span>{order.productionStage}</span>
+                        {order.productionStage === 'Sewing' && order.sewingCondition && order.sewingCondition !== 'Normal' && (
+                          <span
+                            className={`ml-1 text-[10px] font-semibold px-1 py-0.2 rounded ${
+                              order.sewingCondition === 'Rework'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {order.sewingCondition}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-4 font-mono text-right text-slate-700">
                         {order.targetQty.toLocaleString()}
                       </td>
@@ -241,19 +254,13 @@ export const DashboardView: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-2.5 px-4">
-                        <span
-                          className={`text-[11px] px-2 py-0.5 rounded font-medium ${
-                            order.qaStatus === 'Passed'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : order.qaStatus === 'Rework'
-                              ? 'bg-amber-100 text-amber-800'
-                              : order.qaStatus === 'Rejected'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {order.qaStatus || 'Pending'}
-                        </span>
+                        {order.qaStatus ? (
+                          <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {order.qaStatus}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-mono text-xs">-</span>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-right">
                         <button

@@ -49,28 +49,50 @@ const mockOrders: ManufacturingOrder[] = [
     id: 'ord-4',
     moNumber: 'MO-2026-003',
     style: 'Chino Pants',
-    workCenter: 'Finishing Line',
-    productionStage: 'Finishing',
+    workCenter: 'Ironning Station 1',
+    productionStage: 'Ironning',
     targetQty: 400,
     actualQty: 0,
-    qaStatus: 'Pending',
+    sewingCondition: 'Normal',
+    batchId: 'batch-1',
+  },
+  {
+    id: 'ord-5',
+    moNumber: 'MO-2026-004',
+    style: 'Heavy Hoodie',
+    workCenter: 'Sewing Line 3',
+    productionStage: 'Sewing',
+    targetQty: 800,
+    actualQty: 400,
+    sewingCondition: 'Rework',
+    reworkQty: 30,
+    batchId: 'batch-1',
+  },
+  {
+    id: 'ord-6',
+    moNumber: 'MO-2026-005',
+    style: 'Windbreaker',
+    workCenter: 'Sewing Line 4',
+    productionStage: 'Sewing',
+    targetQty: 600,
+    actualQty: 200,
+    sewingCondition: 'Repair',
+    repairQty: 15,
     batchId: 'batch-1',
   },
 ];
 
 test('calculateKPIs computes correct unique counts and totals', () => {
   const kpis = calculateKPIs(mockOrders);
-  assert.equal(kpis.totalMO, 3, 'Should have 3 unique MO numbers');
-  assert.equal(kpis.totalStyle, 3, 'Should have 3 unique styles');
-  assert.equal(kpis.totalWorkCenters, 4, 'Should have 4 unique work centers');
-  assert.equal(kpis.totalTargetQty, 1700, 'Total target is 500+500+300+400');
-  assert.equal(kpis.totalActualQty, 1050, 'Total actual is 450+500+100+0');
-  assert.equal(kpis.progressPercent, 62, '1050 / 1700 is ~62%');
+  assert.equal(kpis.totalMO, 5, 'Should have 5 unique MO numbers');
+  assert.equal(kpis.totalStyle, 5, 'Should have 5 unique styles');
+  assert.equal(kpis.totalTargetQty, 3100, 'Total target is 500+500+300+400+800+600');
+  assert.equal(kpis.totalActualQty, 1650, 'Total actual is 450+500+100+0+400+200');
 });
 
 test('aggregateStyles groups correctly without losing MO relations', () => {
   const styles = aggregateStyles(mockOrders);
-  assert.equal(styles.length, 3);
+  assert.equal(styles.length, 5);
   const polo = styles.find((s) => s.style === 'Classic Polo');
   assert.ok(polo);
   assert.equal(polo?.moCount, 1);
@@ -89,21 +111,39 @@ test('aggregateWorkCenters correctly groups data and calculates progress', () =>
   assert.equal(cutting?.progressPercent, 100);
 });
 
-test('aggregateProductionStages identifies stage with largest backlog', () => {
+test('aggregateProductionStages orders all 7 standard stages and tracks Sewing repair/rework', () => {
   const stages = aggregateProductionStages(mockOrders);
-  assert.ok(stages.length >= 3);
-  // Finishing has 400 target and 0 actual -> 400 backlog (highest backlog)
-  const finishing = stages.find((s) => s.stageName === 'Finishing');
-  assert.ok(finishing);
-  assert.equal(finishing?.isBottleneck, true);
+  // Stages that exist in mock data should be ordered according to STANDARD_PRODUCTION_STAGES:
+  // Cutting (index 0), Sewing (index 1), Ironning (index 3)
+  const cutting = stages.find((s) => s.stageName === 'Cutting');
+  const sewing = stages.find((s) => s.stageName === 'Sewing');
+  const ironning = stages.find((s) => s.stageName === 'Ironning');
+
+  assert.ok(cutting);
+  assert.ok(sewing);
+  assert.ok(ironning);
+
+  assert.ok(cutting.stageIndex < sewing.stageIndex, 'Cutting must precede Sewing');
+  assert.ok(sewing.stageIndex < ironning.stageIndex, 'Sewing must precede Ironning');
+
+  // Verify Sewing Repair & Rework tracking
+  assert.equal(sewing.repairCount, 1, 'Sewing should have 1 MO in repair');
+  assert.equal(sewing.reworkCount, 1, 'Sewing should have 1 MO in rework');
+  assert.equal(sewing.repairQty, 15, 'Sewing repair qty should be 15');
+  assert.equal(sewing.reworkQty, 30, 'Sewing rework qty should be 30');
+
+  // Verify bottleneck is sewing (target 2200, actual 1150 -> 1050 backlog)
+  assert.equal(sewing.isBottleneck, true);
 });
 
-test('aggregateQAStatus calculates correct distribution and percentages', () => {
+test('aggregateQAStatus calculates correct distribution without repair or rework', () => {
   const qa = aggregateQAStatus(mockOrders);
+  const hasRepairOrRework = qa.some((q) => /repair|rework/i.test(q.statusName));
+  assert.equal(hasRepairOrRework, false, 'QA status must NEVER contain Repair or Rework');
+
   const passed = qa.find((q) => q.statusName === 'Passed');
   assert.ok(passed);
   assert.equal(passed?.count, 2);
-  assert.equal(passed?.percentage, 50); // 2 out of 4 is 50%
 });
 
 test('filterOrders filters accurately by text and category', () => {

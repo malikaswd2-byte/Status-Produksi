@@ -3,7 +3,36 @@ import {
   ColumnMappingConfig,
   ExcelParsingResult,
   ManufacturingOrder,
+  STANDARD_PRODUCTION_STAGES,
 } from '../types/ppic';
+
+/**
+ * Normalizes production stages to the 7 standardized sequence stages:
+ * 1. Cutting
+ * 2. Sewing
+ * 3. Penerimaan Ironning
+ * 4. Ironning
+ * 5. QC Finishing
+ * 6. QC Ukur
+ * 7. QA
+ */
+export function normalizeProductionStage(raw: string): string {
+  if (!raw) return 'Cutting';
+  const trimmed = raw.trim();
+  const lower = trimmed.toLowerCase();
+
+  if (/penerimaan[_\s.-]?iron|terima[_\s.-]?iron/i.test(lower)) return 'Penerimaan Ironning';
+  if (/iron|setrika|gosok/i.test(lower)) return 'Ironning';
+  if (/qc[_\s.-]?finish|finishing[_\s.-]?qc|finish[_\s.-]?qc/i.test(lower)) return 'QC Finishing';
+  if (/qc[_\s.-]?ukur|measurement|ukur/i.test(lower)) return 'QC Ukur';
+  if (/^qa$|quality[_\s.-]?assurance/i.test(lower)) return 'QA';
+  if (/sewing|jahit/i.test(lower)) return 'Sewing';
+  if (/cutting|potong/i.test(lower)) return 'Cutting';
+
+  // Check if it exactly matches one of the standard stages ignoring case
+  const exact = STANDARD_PRODUCTION_STAGES.find((s) => s.toLowerCase() === lower);
+  return exact || trimmed;
+}
 
 /**
  * Normalizes Excel dates whether stored as Excel serial numbers, JS Dates, or formatted strings.
@@ -112,10 +141,20 @@ export function detectColumnMappings(headers: string[]): Partial<ColumnMappingCo
       /realisasi/i,
     ],
     qaStatus: [
-      /^(qa|qc|quality|qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|inspeksi|hasil[_\s.-]?qc)$/i,
+      /^(qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|inspeksi|hasil[_\s.-]?qc)$/i,
       /qa/i,
       /qc/i,
       /quality/i,
+    ],
+    sewingCondition: [
+      /^(kondisi[_\s.-]?sewing|status[_\s.-]?sewing|sewing[_\s.-]?condition|sewing[_\s.-]?status|repair[_\s.-]?rework)$/i,
+      /kondisi/i,
+    ],
+    repairQty: [
+      /^(repair[_\s.-]?qty|qty[_\s.-]?repair|jumlah[_\s.-]?repair|repair)$/i,
+    ],
+    reworkQty: [
+      /^(rework[_\s.-]?qty|qty[_\s.-]?rework|jumlah[_\s.-]?rework|rework)$/i,
     ],
     startDate: [
       /^(start[_\s.-]?date|tgl[_\s.-]?mulai|tanggal[_\s.-]?mulai|start|mulai)$/i,
@@ -160,7 +199,7 @@ export function detectColumnMappings(headers: string[]): Partial<ColumnMappingCo
  * Parses raw Excel file buffer into structured sheets, headers, preview rows, and normalized orders.
  */
 export function parseExcelWorkbook(
-  data: ArrayBuffer,
+  data: ArrayBuffer | ArrayBufferLike,
   fileName: string,
   preferredSheet?: string,
   customMapping?: Partial<ColumnMappingConfig>
@@ -245,9 +284,50 @@ export function parseExcelWorkbook(
     const targetQty = Number(String(targetQtyRaw).replace(/[^0-9.-]+/g, '')) || 0;
     const actualQty = Number(String(actualQtyRaw).replace(/[^0-9.-]+/g, '')) || 0;
 
-    let qaStatus = detectedMapping.qaStatus ? String(row[detectedMapping.qaStatus] || '').trim() : '';
-    if (!qaStatus) {
-      qaStatus = actualQty >= targetQty && targetQty > 0 ? 'Passed' : actualQty > 0 ? 'In-Inspection' : 'Pending';
+    const productionStage = normalizeProductionStage(stageRaw);
+
+    // Parse Sewing condition, Repair and Rework
+    let sewingCondition: 'Normal' | 'Repair' | 'Rework' | undefined = undefined;
+    let repairQty: number | undefined = undefined;
+    let reworkQty: number | undefined = undefined;
+
+    if (detectedMapping.sewingCondition && row[detectedMapping.sewingCondition] !== undefined) {
+      const condRaw = String(row[detectedMapping.sewingCondition]).trim();
+      if (/rework/i.test(condRaw)) sewingCondition = 'Rework';
+      else if (/repair/i.test(condRaw)) sewingCondition = 'Repair';
+      else if (condRaw) sewingCondition = 'Normal';
+    }
+
+    if (detectedMapping.repairQty && row[detectedMapping.repairQty] !== undefined && row[detectedMapping.repairQty] !== '') {
+      repairQty = Number(String(row[detectedMapping.repairQty]).replace(/[^0-9.-]+/g, '')) || 0;
+      if (repairQty > 0 && !sewingCondition) sewingCondition = 'Repair';
+    }
+
+    if (detectedMapping.reworkQty && row[detectedMapping.reworkQty] !== undefined && row[detectedMapping.reworkQty] !== '') {
+      reworkQty = Number(String(row[detectedMapping.reworkQty]).replace(/[^0-9.-]+/g, '')) || 0;
+      if (reworkQty > 0) sewingCondition = 'Rework';
+    }
+
+    // Process QA status:
+    // Rule: QA NEVER has Repair or Rework status. If found in raw QA column, relocate to Sewing condition.
+    // Rule: Do NOT synthesize fake QA statuses (Passed, Pending, etc.) without actual Excel data.
+    const rawQA = detectedMapping.qaStatus ? String(row[detectedMapping.qaStatus] || '').trim() : '';
+    let qaStatus: string | undefined = undefined;
+
+    if (rawQA) {
+      if (/repair/i.test(rawQA)) {
+        if (!sewingCondition || productionStage === 'Sewing') {
+          sewingCondition = 'Repair';
+        }
+        qaStatus = undefined; // QA does not have status Repair
+      } else if (/rework/i.test(rawQA)) {
+        if (!sewingCondition || productionStage === 'Sewing') {
+          sewingCondition = 'Rework';
+        }
+        qaStatus = undefined; // QA does not have status Rework
+      } else {
+        qaStatus = rawQA;
+      }
     }
 
     const startDate = detectedMapping.startDate ? normalizeExcelDate(row[detectedMapping.startDate]) : undefined;
@@ -259,15 +339,24 @@ export function parseExcelWorkbook(
     const buyer = detectedMapping.buyer ? String(row[detectedMapping.buyer] || '').trim() : undefined;
     const notes = detectedMapping.notes ? String(row[detectedMapping.notes] || '').trim() : undefined;
 
+    // Check notes for Sewing repair/rework if not set
+    if (!sewingCondition && notes && productionStage === 'Sewing') {
+      if (/rework/i.test(notes)) sewingCondition = 'Rework';
+      else if (/repair/i.test(notes)) sewingCondition = 'Repair';
+    }
+
     normalizedOrders.push({
       id: `${batchId}-${idx + 1}`,
       moNumber,
       style: styleRaw || 'Unknown Style',
       workCenter: wcRaw || 'Unassigned WC',
-      productionStage: stageRaw,
+      productionStage,
       targetQty,
       actualQty,
       qaStatus,
+      sewingCondition,
+      repairQty,
+      reworkQty,
       startDate,
       endDate,
       deliveryDate,
@@ -310,142 +399,172 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'Nomor MO': 'MO-2026-101',
       'Style': 'Mens Pique Polo Shirt',
-      'Work Center': 'Sewing Line 01',
-      'Tahap Produksi': 'Sewing',
+      'Work Center': 'Cutting Section A',
+      'Tahap Produksi': 'Cutting',
       'Target Qty': 1200,
-      'Actual Qty': 850,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-03',
-      'Tgl Selesai': '2026-11-14',
+      'Actual Qty': 1200,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': 'Passed Fabric Inspection',
+      'Tgl Mulai': '2026-11-01',
+      'Tgl Selesai': '2026-11-05',
       'Tgl Pengiriman': '2026-11-18',
       'Buyer': 'Uniqlo Global',
       'Catatan': 'Priority batch 1 for Spring launch',
     },
     {
       'Nomor MO': 'MO-2026-102',
-      'Style': 'Slim Fit Chino Trousers',
-      'Work Center': 'Sewing Line 03',
+      'Style': 'Mens Pique Polo Shirt',
+      'Work Center': 'Sewing Line 01',
       'Tahap Produksi': 'Sewing',
-      'Target Qty': 850,
-      'Actual Qty': 850,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-01',
-      'Tgl Selesai': '2026-11-09',
-      'Tgl Pengiriman': '2026-11-12',
-      'Buyer': 'Zara Men',
-      'Catatan': 'First delivery batch',
+      'Target Qty': 1200,
+      'Actual Qty': 950,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-04',
+      'Tgl Selesai': '2026-11-14',
+      'Tgl Pengiriman': '2026-11-18',
+      'Buyer': 'Uniqlo Global',
+      'Catatan': 'Collar attachment running on schedule',
     },
     {
       'Nomor MO': 'MO-2026-103',
-      'Style': 'Slim Fit Chino Trousers',
-      'Work Center': 'Finishing Line',
-      'Tahap Produksi': 'Ironing & Packing',
-      'Target Qty': 850,
-      'Actual Qty': 400,
-      'Status QA': 'In-Inspection',
-      'Tgl Mulai': '2026-11-08',
-      'Tgl Selesai': '2026-11-16',
-      'Tgl Pengiriman': '2026-11-20',
-      'Buyer': 'Zara Men',
-      'Catatan': 'Tagging and barcode scan ongoing',
-    },
-    {
-      'Nomor MO': 'MO-2026-104',
-      'Style': 'Heavyweight Cotton Hoodie',
-      'Work Center': 'Cutting Section',
-      'Tahap Produksi': 'Cutting',
-      'Target Qty': 2000,
-      'Actual Qty': 1900,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-04',
-      'Tgl Selesai': '2026-11-11',
-      'Tgl Pengiriman': '2026-11-25',
-      'Buyer': 'H&M Basic',
-      'Catatan': 'Fabric relaxed 24 hours prior',
-    },
-    {
-      'Nomor MO': 'MO-2026-105',
       'Style': 'Heavyweight Cotton Hoodie',
       'Work Center': 'Sewing Line 02',
       'Tahap Produksi': 'Sewing',
       'Target Qty': 2000,
       'Actual Qty': 750,
-      'Status QA': 'Rework',
-      'Tgl Mulai': '2026-11-10',
-      'Tgl Selesai': '2026-11-22',
+      'Kondisi Sewing': 'Rework',
+      'Qty Repair': 0,
+      'Qty Rework': 45,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-08',
+      'Tgl Selesai': '2026-11-20',
       'Tgl Pengiriman': '2026-11-28',
       'Buyer': 'H&M Basic',
-      'Catatan': 'Cuff stitching tension adjusted',
+      'Catatan': 'Cuff stitching tension recalibrated',
     },
     {
-      'Nomor MO': 'MO-2026-106',
+      'Nomor MO': 'MO-2026-104',
       'Style': 'Oxford Casual Button-Down',
       'Work Center': 'Sewing Line 01',
       'Tahap Produksi': 'Sewing',
       'Target Qty': 600,
-      'Actual Qty': 150,
-      'Status QA': 'In-Inspection',
-      'Tgl Mulai': '2026-11-12',
-      'Tgl Selesai': '2026-11-20',
+      'Actual Qty': 220,
+      'Kondisi Sewing': 'Repair',
+      'Qty Repair': 18,
+      'Qty Rework': 0,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-10',
+      'Tgl Selesai': '2026-11-22',
       'Tgl Pengiriman': '2026-11-26',
       'Buyer': 'Marks & Spencer',
-      'Catatan': 'Collar fusing inspected',
+      'Catatan': 'Collar point repair minor alignment',
+    },
+    {
+      'Nomor MO': 'MO-2026-105',
+      'Style': 'Slim Fit Chino Trousers',
+      'Work Center': 'Area Penerimaan Ironning',
+      'Tahap Produksi': 'Penerimaan Ironning',
+      'Target Qty': 850,
+      'Actual Qty': 850,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-09',
+      'Tgl Selesai': '2026-11-12',
+      'Tgl Pengiriman': '2026-11-20',
+      'Buyer': 'Zara Men',
+      'Catatan': 'Batch transfer from sewing verified',
+    },
+    {
+      'Nomor MO': 'MO-2026-106',
+      'Style': 'Slim Fit Chino Trousers',
+      'Work Center': 'Ironning Station 01',
+      'Tahap Produksi': 'Ironning',
+      'Target Qty': 850,
+      'Actual Qty': 480,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-11',
+      'Tgl Selesai': '2026-11-16',
+      'Tgl Pengiriman': '2026-11-20',
+      'Buyer': 'Zara Men',
+      'Catatan': 'Crease line pressing in progress',
     },
     {
       'Nomor MO': 'MO-2026-107',
       'Style': 'Water-Repellent Windbreaker',
-      'Work Center': 'Cutting Section',
-      'Tahap Produksi': 'Cutting',
+      'Work Center': 'QC Finishing Line',
+      'Tahap Produksi': 'QC Finishing',
       'Target Qty': 1500,
-      'Actual Qty': 1500,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-06',
-      'Tgl Selesai': '2026-11-13',
+      'Actual Qty': 1100,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': '',
+      'Tgl Mulai': '2026-11-12',
+      'Tgl Selesai': '2026-11-19',
       'Tgl Pengiriman': '2026-11-30',
       'Buyer': 'Columbia Sportswear',
-      'Catatan': 'Laser cutting executed smoothly',
+      'Catatan': 'Zipper puller & snap button checking',
     },
     {
       'Nomor MO': 'MO-2026-108',
       'Style': 'Water-Repellent Windbreaker',
-      'Work Center': 'Sewing Line 04',
-      'Tahap Produksi': 'Seam Sealing & Sewing',
+      'Work Center': 'QC Ukur Station',
+      'Tahap Produksi': 'QC Ukur',
       'Target Qty': 1500,
-      'Actual Qty': 300,
-      'Status QA': 'Pending',
+      'Actual Qty': 750,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': '',
       'Tgl Mulai': '2026-11-14',
-      'Tgl Selesai': '2026-11-27',
+      'Tgl Selesai': '2026-11-22',
       'Tgl Pengiriman': '2026-11-30',
       'Buyer': 'Columbia Sportswear',
-      'Catatan': 'Seam sealing tape calibrated',
+      'Catatan': 'Measurement spec sheet tolerance ±0.5cm',
     },
     {
       'Nomor MO': 'MO-2026-109',
       'Style': 'Denim Jacket Vintage Wash',
-      'Work Center': 'Washing Plant',
-      'Tahap Produksi': 'Enzyme Wash',
+      'Work Center': 'QA Audit Room',
+      'Tahap Produksi': 'QA',
       'Target Qty': 900,
-      'Actual Qty': 450,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-09',
+      'Actual Qty': 900,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': 'Passed AQL 1.5 Final Audit',
+      'Tgl Mulai': '2026-11-12',
       'Tgl Selesai': '2026-11-18',
       'Tgl Pengiriman': '2026-11-24',
       'Buyer': 'Levi Strauss & Co',
-      'Catatan': 'Eco-wash water recycling active',
+      'Catatan': 'Final carton packing audit approved',
     },
     {
       'Nomor MO': 'MO-2026-110',
       'Style': 'Athletic Dry-Fit Tee',
-      'Work Center': 'Sewing Line 02',
-      'Tahap Produksi': 'Sewing',
+      'Work Center': 'QA Audit Room',
+      'Tahap Produksi': 'QA',
       'Target Qty': 3000,
-      'Actual Qty': 2800,
-      'Status QA': 'Passed',
-      'Tgl Mulai': '2026-11-02',
-      'Tgl Selesai': '2026-11-15',
+      'Actual Qty': 2850,
+      'Kondisi Sewing': 'Normal',
+      'Qty Repair': 0,
+      'Qty Rework': 0,
+      'Status QA': 'Audit Selesai 2026-11-15',
+      'Tgl Mulai': '2026-11-10',
+      'Tgl Selesai': '2026-11-16',
       'Tgl Pengiriman': '2026-11-19',
       'Buyer': 'Decathlon',
-      'Catatan': 'High efficiency line output',
+      'Catatan': 'Audit sampling completed',
     },
   ];
 

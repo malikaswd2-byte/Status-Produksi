@@ -1,3 +1,15 @@
+export const STANDARD_PRODUCTION_STAGES = [
+  'Cutting',
+  'Sewing',
+  'Penerimaan Ironning',
+  'Ironning',
+  'QC Finishing',
+  'QC Ukur',
+  'QA',
+] as const;
+
+export type StandardProductionStage = typeof STANDARD_PRODUCTION_STAGES[number];
+
 export interface ManufacturingOrder {
   id: string;
   moNumber: string;
@@ -6,7 +18,10 @@ export interface ManufacturingOrder {
   productionStage: string;
   targetQty: number;
   actualQty: number;
-  qaStatus: string; // e.g. "Passed", "In-Inspection", "Rework", "Rejected", "Pending"
+  qaStatus?: string; // Optional actual QA info/status only when present in Excel
+  sewingCondition?: 'Normal' | 'Repair' | 'Rework'; // Sewing process condition
+  repairQty?: number;
+  reworkQty?: number;
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
   deliveryDate?: string; // YYYY-MM-DD
@@ -79,6 +94,7 @@ export interface WorkCenterSummary {
 
 export interface ProductionStageSummary {
   stageName: string;
+  stageIndex: number; // 0 for Cutting, 1 for Sewing, etc.
   workCenters: string[];
   moCount: number;
   styleCount: number;
@@ -86,6 +102,10 @@ export interface ProductionStageSummary {
   actualQty: number;
   completionRate: number;
   isBottleneck: boolean;
+  repairCount?: number; // Only for Sewing
+  reworkCount?: number; // Only for Sewing
+  repairQty?: number;
+  reworkQty?: number;
 }
 
 export interface QARecord {
@@ -114,6 +134,9 @@ export interface ColumnMappingConfig {
   targetQty: string;
   actualQty: string;
   qaStatus: string;
+  sewingCondition: string;
+  repairQty: string;
+  reworkQty: string;
   startDate: string;
   endDate: string;
   deliveryDate: string;

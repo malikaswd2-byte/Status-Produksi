@@ -123,6 +123,12 @@ export const ProductionMonitoringView: React.FC = () => {
           <div className="space-y-3">
             {stagesData.map((stage) => {
               const backlog = Math.max(0, stage.targetQty - stage.actualQty);
+              const hasSewingIssues =
+                stage.stageName === 'Sewing' &&
+                ((stage.repairCount && stage.repairCount > 0) ||
+                  (stage.reworkCount && stage.reworkCount > 0) ||
+                  (stage.repairQty && stage.repairQty > 0) ||
+                  (stage.reworkQty && stage.reworkQty > 0));
 
               return (
                 <div
@@ -141,6 +147,20 @@ export const ProductionMonitoringView: React.FC = () => {
                           <AlertCircle className="w-3 h-3 text-amber-700" />
                           Volume Terberat (Bottleneck)
                         </span>
+                      )}
+                      {hasSewingIssues && (
+                        <div className="flex items-center gap-1.5 ml-2">
+                          {(stage.repairCount || 0) > 0 && (
+                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
+                              Repair: {stage.repairCount} MO {stage.repairQty ? `(${stage.repairQty} pcs)` : ''}
+                            </span>
+                          )}
+                          {(stage.reworkCount || 0) > 0 && (
+                            <span className="text-[10px] font-semibold text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded">
+                              Rework: {stage.reworkCount} MO {stage.reworkQty ? `(${stage.reworkQty} pcs)` : ''}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -349,7 +369,18 @@ export const ProductionMonitoringView: React.FC = () => {
                                         {ord.moNumber}
                                       </td>
                                       <td className="py-2 px-3 text-slate-700">{ord.workCenter}</td>
-                                      <td className="py-2 px-3 text-slate-700">{ord.productionStage}</td>
+                                      <td className="py-2 px-3 text-slate-700">
+                                        <span>{ord.productionStage}</span>
+                                        {ord.productionStage === 'Sewing' && ord.sewingCondition && ord.sewingCondition !== 'Normal' && (
+                                          <span className={`ml-1 text-[10px] font-semibold px-1 rounded ${
+                                            ord.sewingCondition === 'Rework'
+                                              ? 'bg-rose-100 text-rose-800'
+                                              : 'bg-amber-100 text-amber-800'
+                                          }`}>
+                                            {ord.sewingCondition}
+                                          </span>
+                                        )}
+                                      </td>
                                       <td className="py-2 px-3 font-mono text-right text-slate-700">
                                         {ord.targetQty.toLocaleString()}
                                       </td>
