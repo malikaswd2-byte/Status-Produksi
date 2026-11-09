@@ -329,7 +329,10 @@ export const UploadView: React.FC = () => {
                 { key: 'productionStage' as const, label: 'Tahap Produksi', required: false },
                 { key: 'targetQty' as const, label: 'Target Produksi (Qty)', required: false },
                 { key: 'actualQty' as const, label: 'Output Aktual', required: false },
-                { key: 'qaStatus' as const, label: 'Status QA / QC', required: false },
+                { key: 'sewingCondition' as const, label: 'Kondisi Sewing (Normal/Repair/Rework)', required: false },
+                { key: 'repairQty' as const, label: 'Qty Repair (Sewing)', required: false },
+                { key: 'reworkQty' as const, label: 'Qty Rework (Sewing)', required: false },
+                { key: 'qaStatus' as const, label: 'Status / Hasil QA (Aktual Excel)', required: false },
                 { key: 'startDate' as const, label: 'Tanggal Mulai', required: false },
                 { key: 'endDate' as const, label: 'Tanggal Selesai', required: false },
                 { key: 'deliveryDate' as const, label: 'Tanggal Pengiriman', required: false },
@@ -382,10 +385,21 @@ export const UploadView: React.FC = () => {
                       <td className="py-2 px-3 font-semibold text-blue-600">{row.moNumber}</td>
                       <td className="py-2 px-3 font-sans text-slate-800">{row.style}</td>
                       <td className="py-2 px-3 font-sans text-slate-700">{row.workCenter}</td>
-                      <td className="py-2 px-3 font-sans text-slate-700">{row.productionStage}</td>
-                      <td className="py-2 px-3 text-right text-slate-700">{row.targetQty}</td>
-                      <td className="py-2 px-3 text-right text-emerald-700">{row.actualQty}</td>
-                      <td className="py-2 px-3 font-sans">{row.qaStatus}</td>
+                      <td className="py-2 px-3 font-sans text-slate-700">
+                        {row.productionStage}
+                        {row.productionStage === 'Sewing' && row.sewingCondition && row.sewingCondition !== 'Normal' && (
+                          <span className={`ml-1 text-[10px] font-semibold px-1 rounded ${
+                            row.sewingCondition === 'Rework'
+                              ? 'bg-rose-100 text-rose-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}>
+                            {row.sewingCondition}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-right text-slate-700">{row.targetQty.toLocaleString()}</td>
+                      <td className="py-2 px-3 text-right text-emerald-700 font-semibold">{row.actualQty.toLocaleString()}</td>
+                      <td className="py-2 px-3 font-sans">{row.qaStatus || '-'}</td>
                       <td className="py-2 px-3 text-slate-600">{row.deliveryDate || '-'}</td>
                     </tr>
                   ))}
