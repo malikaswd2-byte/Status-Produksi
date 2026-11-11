@@ -18,16 +18,27 @@ export interface ManufacturingOrder {
   productionStage: string;
   targetQty: number;
   actualQty: number;
-  qaStatus?: string; // Optional actual QA info/status only when present in Excel
-  sewingCondition?: 'Normal' | 'Repair' | 'Rework'; // Sewing process condition
+  // Specific quantities from Excel template
+  originalQty?: number;
+  quantity?: number;
+  remainingQty?: number;
   repairQty?: number;
   reworkQty?: number;
+  // Additional operational metadata
+  routing?: string;
+  buyer?: string;
+  line?: string;
+  rawStyle?: string;
+  rawWorkCenter?: string;
+  qaStatus?: string; // Optional actual QA info/status only when present in Excel
+  sewingCondition?: 'Normal' | 'Repair' | 'Rework'; // Sewing process condition
   startDate?: string; // YYYY-MM-DD
   endDate?: string;   // YYYY-MM-DD
   deliveryDate?: string; // YYYY-MM-DD
-  buyer?: string;
   notes?: string;
   batchId: string;
+  needsVerification?: boolean;
+  verificationIssues?: string[];
   customAttributes?: Record<string, any>;
 }
 
@@ -102,6 +113,9 @@ export interface ProductionStageSummary {
   actualQty: number;
   completionRate: number;
   isBottleneck: boolean;
+  originalQty?: number;
+  quantity?: number;
+  remainingQty?: number;
   repairCount?: number; // Only for Sewing
   reworkCount?: number; // Only for Sewing
   repairQty?: number;
@@ -133,15 +147,29 @@ export interface ColumnMappingConfig {
   productionStage: string;
   targetQty: string;
   actualQty: string;
-  qaStatus: string;
-  sewingCondition: string;
+  originalQty: string;
+  quantity: string;
+  remainingQty: string;
   repairQty: string;
   reworkQty: string;
+  routing: string;
+  buyer: string;
+  qaStatus: string;
+  sewingCondition: string;
   startDate: string;
   endDate: string;
   deliveryDate: string;
-  buyer: string;
   notes: string;
+}
+
+export interface TemplateProfile {
+  id: string;
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+  headerSignatures: string[];
+  mapping: Partial<ColumnMappingConfig>;
+  createdAt: string;
 }
 
 export interface ExcelParsingResult {
@@ -149,6 +177,8 @@ export interface ExcelParsingResult {
   sheets: string[];
   selectedSheet: string;
   rawHeaders: string[];
+  isTemplateRecognized: boolean;
+  matchedTemplateName?: string;
   detectedMapping: Partial<ColumnMappingConfig>;
   rows: any[];
   normalizedOrders: ManufacturingOrder[];
@@ -157,6 +187,11 @@ export interface ExcelParsingResult {
     moCount: number;
     styleCount: number;
     workCenterCount: number;
+    stageCount: number;
+    sheetsProcessed: number;
+    needsVerificationCount: number;
   };
+  unrecognizedStages: string[];
   warnings: string[];
 }
+

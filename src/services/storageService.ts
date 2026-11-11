@@ -3,7 +3,9 @@ import {
   ManufacturingOrder,
   ProductionSchedule,
   DeliverySchedule,
+  TemplateProfile,
 } from '../types/ppic';
+import { BUILTIN_STANDARD_TEMPLATE_PROFILE } from './excelParser';
 
 const STORAGE_KEYS = {
   BATCHES: 'ppic_upload_batches_v2',
@@ -11,6 +13,7 @@ const STORAGE_KEYS = {
   ORDERS: 'ppic_orders_v2',
   PRODUCTION_SCHEDULES: 'ppic_prod_schedules_v2',
   DELIVERY_SCHEDULES: 'ppic_deliv_schedules_v2',
+  TEMPLATE_PROFILES: 'ppic_template_profiles_v1',
 };
 
 export interface IPPICRepository {
@@ -26,8 +29,12 @@ export interface IPPICRepository {
   getDeliverySchedules(): DeliverySchedule[];
   saveDeliverySchedule(delivery: DeliverySchedule): void;
   deleteDeliverySchedule(id: string): void;
+  getTemplateProfiles(): TemplateProfile[];
+  saveTemplateProfile(profile: TemplateProfile): void;
+  deleteTemplateProfile(id: string): void;
   resetToInitialData(): void;
 }
+
 
 const INITIAL_BATCH_ID = 'BATCH-20261108-SEED-V2';
 
@@ -563,6 +570,51 @@ class LocalStoragePPICRepository implements IPPICRepository {
       // ignore
     }
   }
+
+  getTemplateProfiles(): TemplateProfile[] {
+    if (!this.isStorageAvailable()) return [BUILTIN_STANDARD_TEMPLATE_PROFILE];
+    try {
+      const data = localStorage.getItem(STORAGE_KEYS.TEMPLATE_PROFILES);
+      if (!data) return [BUILTIN_STANDARD_TEMPLATE_PROFILE];
+      const parsed: TemplateProfile[] = JSON.parse(data);
+      // Ensure built-in standard profile is always present
+      if (!parsed.some((p) => p.id === BUILTIN_STANDARD_TEMPLATE_PROFILE.id)) {
+        return [BUILTIN_STANDARD_TEMPLATE_PROFILE, ...parsed];
+      }
+      return parsed;
+    } catch {
+      return [BUILTIN_STANDARD_TEMPLATE_PROFILE];
+    }
+  }
+
+  saveTemplateProfile(profile: TemplateProfile): void {
+    if (!this.isStorageAvailable()) return;
+    try {
+      const profiles = this.getTemplateProfiles();
+      const existingIdx = profiles.findIndex((p) => p.id === profile.id || p.name === profile.name);
+      if (existingIdx !== -1) {
+        profiles[existingIdx] = profile;
+      } else {
+        profiles.push(profile);
+      }
+      localStorage.setItem(STORAGE_KEYS.TEMPLATE_PROFILES, JSON.stringify(profiles));
+    } catch {
+      // ignore
+    }
+  }
+
+  deleteTemplateProfile(id: string): void {
+    if (!this.isStorageAvailable()) return;
+    try {
+      // Prevent deleting the default built-in profile
+      if (id === BUILTIN_STANDARD_TEMPLATE_PROFILE.id) return;
+      const profiles = this.getTemplateProfiles().filter((p) => p.id !== id);
+      localStorage.setItem(STORAGE_KEYS.TEMPLATE_PROFILES, JSON.stringify(profiles));
+    } catch {
+      // ignore
+    }
+  }
+
 
   resetToInitialData(): void {
     if (!this.isStorageAvailable()) return;

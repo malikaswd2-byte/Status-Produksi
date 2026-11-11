@@ -151,13 +151,38 @@ export const MODetailModal: React.FC = () => {
                 </h4>
                 <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Work Center:</span>
-                    <span className="font-semibold text-slate-800">{selectedMO.workCenter}</span>
+                    <span className="text-slate-500">Work Center / Line:</span>
+                    <span className="font-semibold text-slate-800">
+                      {selectedMO.workCenter}
+                      {selectedMO.line && selectedMO.line !== selectedMO.workCenter ? ` (${selectedMO.line})` : ''}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Tahap Produksi:</span>
                     <span className="font-semibold text-slate-800">{selectedMO.productionStage}</span>
                   </div>
+                  {selectedMO.routing && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Routing:</span>
+                      <span className="font-mono text-slate-800">{selectedMO.routing}</span>
+                    </div>
+                  )}
+                  {selectedMO.originalQty !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Original Qty (Plan):</span>
+                      <span className="font-mono font-semibold text-slate-800">
+                        {selectedMO.originalQty.toLocaleString()} pcs
+                      </span>
+                    </div>
+                  )}
+                  {selectedMO.remainingQty !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Qty Sisa (Backlog):</span>
+                      <span className="font-mono font-bold text-amber-700">
+                        {selectedMO.remainingQty.toLocaleString()} pcs
+                      </span>
+                    </div>
+                  )}
                   {selectedMO.productionStage === 'Sewing' && (selectedMO.sewingCondition || selectedMO.repairQty || selectedMO.reworkQty) && (
                     <div className="flex justify-between bg-amber-50/70 p-2 rounded border border-amber-200/60">
                       <span className="text-amber-800 font-medium">Kondisi Sewing:</span>
@@ -176,7 +201,7 @@ export const MODetailModal: React.FC = () => {
                   )}
                   {selectedMO.buyer && (
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Buyer:</span>
+                      <span className="text-slate-500">Buyer / Customer:</span>
                       <span className="font-medium text-slate-800">{selectedMO.buyer}</span>
                     </div>
                   )}
@@ -188,6 +213,7 @@ export const MODetailModal: React.FC = () => {
                   )}
                 </div>
               </div>
+
 
               {/* Provenance Origin Batch */}
               <div className="p-4 rounded-lg border border-slate-200 space-y-2.5 bg-slate-50/40">

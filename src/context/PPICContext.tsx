@@ -5,7 +5,9 @@ import {
   ProductionSchedule,
   DeliverySchedule,
   FilterState,
+  TemplateProfile,
 } from '../types/ppic';
+
 import { ppicRepository } from '../services/storageService';
 import { filterOrders } from '../utils/ppicCalculations';
 
@@ -39,11 +41,15 @@ interface PPICContextType {
   deleteProductionSchedule: (id: string) => void;
   saveDeliverySchedule: (delivery: DeliverySchedule) => void;
   deleteDeliverySchedule: (id: string) => void;
+  templateProfiles: TemplateProfile[];
+  saveTemplateProfile: (profile: TemplateProfile) => void;
+  deleteTemplateProfile: (id: string) => void;
   resetToSampleData: () => void;
   toasts: ToastState[];
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   dismissToast: (id: string) => void;
 }
+
 
 const defaultFilters: FilterState = {
   search: '',
@@ -81,6 +87,8 @@ export const PPICProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const [templateProfiles, setTemplateProfiles] = useState<TemplateProfile[]>([]);
+
   // Reload state from repository
   const refreshData = useCallback(() => {
     const allBatches = ppicRepository.getBatches();
@@ -88,17 +96,38 @@ export const PPICProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const currentOrders = ppicRepository.getOrders(currentActive?.id);
     const schedules = ppicRepository.getProductionSchedules();
     const deliveries = ppicRepository.getDeliverySchedules();
+    const profiles = ppicRepository.getTemplateProfiles();
 
     setBatches(allBatches);
     setActiveBatch(currentActive);
     setOrders(currentOrders);
     setProductionSchedules(schedules);
     setDeliverySchedules(deliveries);
+    setTemplateProfiles(profiles);
   }, []);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  const saveTemplateProfile = useCallback(
+    (profile: TemplateProfile) => {
+      ppicRepository.saveTemplateProfile(profile);
+      refreshData();
+      showToast(`Konfigurasi template "${profile.name}" berhasil disimpan!`, 'success');
+    },
+    [refreshData, showToast]
+  );
+
+  const deleteTemplateProfile = useCallback(
+    (id: string) => {
+      ppicRepository.deleteTemplateProfile(id);
+      refreshData();
+      showToast('Konfigurasi template berhasil dihapus', 'info');
+    },
+    [refreshData, showToast]
+  );
+
 
   const updateFilter = useCallback(<K extends keyof FilterState>(key: K, value: FilterState[K]) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -207,11 +236,15 @@ export const PPICProvider: React.FC<{ children: React.ReactNode }> = ({ children
         deleteProductionSchedule,
         saveDeliverySchedule,
         deleteDeliverySchedule,
+        templateProfiles,
+        saveTemplateProfile,
+        deleteTemplateProfile,
         resetToSampleData,
         toasts,
         showToast,
         dismissToast,
       }}
+
     >
       {children}
     </PPICContext.Provider>

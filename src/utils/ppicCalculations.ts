@@ -28,11 +28,23 @@ export function filterOrders(
       const matchWC = order.workCenter?.toLowerCase().includes(searchTerm);
       const matchStage = order.productionStage?.toLowerCase().includes(searchTerm);
       const matchBuyer = order.buyer?.toLowerCase().includes(searchTerm);
+      const matchRouting = order.routing?.toLowerCase().includes(searchTerm);
+      const matchLine = order.line?.toLowerCase().includes(searchTerm);
       const matchNotes = order.notes?.toLowerCase().includes(searchTerm);
 
-      if (!matchMO && !matchStyle && !matchWC && !matchStage && !matchBuyer && !matchNotes) {
+      if (
+        !matchMO &&
+        !matchStyle &&
+        !matchWC &&
+        !matchStage &&
+        !matchBuyer &&
+        !matchRouting &&
+        !matchLine &&
+        !matchNotes
+      ) {
         return false;
       }
+
     }
 
     // 2. Work Center Filter
@@ -218,8 +230,14 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
 
     const targetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
     const actualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+    const originalQty = orderList.reduce((sum, o) => sum + (Number(o.originalQty) || 0), 0);
+    const quantity = orderList.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
+    const remainingQty = orderList.reduce((sum, o) => sum + (Number(o.remainingQty) || 0), 0);
+
     const completionRate =
-      targetQty > 0 ? Math.min(100, Math.round((actualQty / targetQty) * 100)) : 0;
+      targetQty > 0
+        ? Math.min(100, Math.round((actualQty / targetQty) * 100))
+        : 0;
 
     const stdIndex = STANDARD_PRODUCTION_STAGES.indexOf(
       stageName as (typeof STANDARD_PRODUCTION_STAGES)[number]
@@ -240,6 +258,9 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
         } else if (ord.sewingCondition === 'Rework') {
           reworkCount++;
           reworkQty += Number(ord.reworkQty || ord.actualQty || 0);
+        } else if (ord.repairQty && ord.repairQty > 0) {
+          repairCount++;
+          repairQty += Number(ord.repairQty);
         } else if (ord.notes && /repair/i.test(ord.notes)) {
           repairCount++;
           repairQty += Number(ord.repairQty || 0);
@@ -258,6 +279,9 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
       styleCount: uniqueStyles.size,
       targetQty,
       actualQty,
+      originalQty: originalQty > 0 ? originalQty : undefined,
+      quantity: quantity > 0 ? quantity : undefined,
+      remainingQty: remainingQty > 0 ? remainingQty : undefined,
       completionRate,
       isBottleneck: false,
       repairCount,
@@ -267,12 +291,15 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
     });
   }
 
-  // Determine bottleneck: find the stage with highest unfinished backlog (targetQty - actualQty)
+  // Determine bottleneck: prioritize explicit remainingQty (Qty Sisa) if available, otherwise targetQty - actualQty
   let maxBacklog = -1;
   let bottleneckIndex = -1;
 
   rawList.forEach((stage, idx) => {
-    const backlog = stage.targetQty - stage.actualQty;
+    const backlog = stage.remainingQty !== undefined && stage.remainingQty > 0
+      ? stage.remainingQty
+      : Math.max(0, stage.targetQty - stage.actualQty);
+
     if (backlog > maxBacklog && backlog > 0) {
       maxBacklog = backlog;
       bottleneckIndex = idx;
@@ -286,6 +313,7 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
   // Strict sorting by the 7 standard stages sequence
   return rawList.sort((a, b) => a.stageIndex - b.stageIndex);
 }
+
 
 /**
  * QA status color map conforming to enterprise standards.

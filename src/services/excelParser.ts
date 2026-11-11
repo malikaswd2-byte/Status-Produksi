@@ -4,7 +4,34 @@ import {
   ExcelParsingResult,
   ManufacturingOrder,
   STANDARD_PRODUCTION_STAGES,
+  TemplateProfile,
 } from '../types/ppic';
+
+/**
+ * Standard Built-in Template Profile definition
+ */
+export const BUILTIN_STANDARD_TEMPLATE_PROFILE: TemplateProfile = {
+  id: 'tpl-ppic-work-orders-standard',
+  name: 'PPIC Standard Work Orders Template',
+  description:
+    'Template resmi manufaktur PPIC (Customer, Routing, Work Orders/Style, Work Center, Original Qty, Qty, Qty Sisa, Qty Repair)',
+  isDefault: true,
+  headerSignatures: [
+    'Work Orders/Style/Display Name',
+    'Work Orders/Work Center/Display Name',
+  ],
+  mapping: {
+    buyer: 'Customer/Display Name',
+    routing: 'Routing/Display Name',
+    style: 'Work Orders/Style/Display Name',
+    workCenter: 'Work Orders/Work Center/Display Name',
+    originalQty: 'Work Orders/Original Production Q',
+    quantity: 'Work Orders/Quantity',
+    remainingQty: 'Work Orders/Qty Sisa',
+    repairQty: 'Work Orders/Qty Repair',
+  },
+  createdAt: '2026-11-10T00:00:00.000Z',
+};
 
 /**
  * Normalizes production stages to the 7 standardized sequence stages:
@@ -21,17 +48,261 @@ export function normalizeProductionStage(raw: string): string {
   const trimmed = raw.trim();
   const lower = trimmed.toLowerCase();
 
-  if (/penerimaan[_\s.-]?iron|terima[_\s.-]?iron/i.test(lower)) return 'Penerimaan Ironning';
-  if (/iron|setrika|gosok/i.test(lower)) return 'Ironning';
-  if (/qc[_\s.-]?finish|finishing[_\s.-]?qc|finish[_\s.-]?qc/i.test(lower)) return 'QC Finishing';
-  if (/qc[_\s.-]?ukur|measurement|ukur/i.test(lower)) return 'QC Ukur';
-  if (/^qa$|quality[_\s.-]?assurance/i.test(lower)) return 'QA';
-  if (/sewing|jahit/i.test(lower)) return 'Sewing';
-  if (/cutting|potong/i.test(lower)) return 'Cutting';
+  // 1. Penerimaan Ironning (check before Ironning)
+  if (/penerimaan[_\s.-]?iron|terima[_\s.-]?iron|receiving[_\s.-]?iron/i.test(lower)) {
+    return 'Penerimaan Ironning';
+  }
+  // 2. Ironning
+  if (/iron|setrika|gosok|pressing/i.test(lower)) {
+    return 'Ironning';
+  }
+  // 3. QC Finishing
+  if (/qc[_\s.-]?finish|finishing[_\s.-]?qc|finish[_\s.-]?qc/i.test(lower)) {
+    return 'QC Finishing';
+  }
+  // 4. QC Ukur
+  if (/qc[_\s.-]?ukur|measurement|ukur|size[_\s.-]?spec/i.test(lower)) {
+    return 'QC Ukur';
+  }
+  // 5. QA
+  if (/^qa\b|quality[_\s.-]?assurance|audit[_\s.-]?qa|final[_\s.-]?audit/i.test(lower)) {
+    return 'QA';
+  }
+  // 6. Sewing
+  if (/sewing|jahit/i.test(lower)) {
+    return 'Sewing';
+  }
+  // 7. Cutting
+  if (/cutting|potong/i.test(lower)) {
+    return 'Cutting';
+  }
 
   // Check if it exactly matches one of the standard stages ignoring case
   const exact = STANDARD_PRODUCTION_STAGES.find((s) => s.toLowerCase() === lower);
   return exact || trimmed;
+}
+
+/**
+ * Extracts MO Number and Style from Work Orders/Style/Display Name.
+ * Example format: "[UNSIO1-1] UNSI JSU MHS 01"
+ *
+ * Rules:
+ * - Keep original value.
+ * - Extract MO number and Style name if pattern is consistent (e.g., [MO] Style).
+ * - Do NOT treat whole text as MO number.
+ * - Do NOT invent fake random MO numbers.
+ * - If MO cannot be confidently separated, mark as needsVerification.
+ * - One MO can have multiple stage rows and must remain one unified MO entity.
+ */
+export interface StyleMOExtraction {
+  raw: string;
+  moNumber: string;
+  style: string;
+  isConfident: boolean;
+  needsVerification: boolean;
+  issue?: string;
+}
+
+export function extractStyleAndMO(rawValue: any): StyleMOExtraction {
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') {
+    return {
+      raw: '',
+      moNumber: '',
+      style: '',
+      isConfident: false,
+      needsVerification: true,
+      issue: 'Kolom Style/MO kosong',
+    };
+  }
+
+  const raw = String(rawValue).trim();
+
+  // Pattern 1: [MO-IDENTIFIER] STYLE_NAME (e.g. "[UNSIO1-1] UNSI JSU MHS 01")
+  const bracketMatch = raw.match(/^\[([^\]]+)\]\s*(.*)$/);
+  if (bracketMatch) {
+    const moPart = bracketMatch[1].trim();
+    const stylePart = bracketMatch[2].trim();
+    return {
+      raw,
+      moNumber: moPart,
+      style: stylePart || moPart,
+      isConfident: true,
+      needsVerification: false,
+    };
+  }
+
+  // Pattern 2: Explicit prefix separator like "MO-2026-101 - Style Name" or "MO-101 : Style"
+  const prefixMatch = raw.match(/^(MO[-A-Za-z0-9_]+|SPK[-A-Za-z0-9_]+|WO[-A-Za-z0-9_]+)\s*[-:–|/]\s*(.+)$/i);
+  if (prefixMatch) {
+    return {
+      raw,
+      moNumber: prefixMatch[1].trim(),
+      style: prefixMatch[2].trim(),
+      isConfident: true,
+      needsVerification: false,
+    };
+  }
+
+  // Pattern 3: Cannot separate MO number with high confidence
+  // Do NOT make up a random MO number. Set style to raw, and flag for verification.
+  return {
+    raw,
+    moNumber: '',
+    style: raw,
+    isConfident: false,
+    needsVerification: true,
+    issue: 'Nomor MO belum dapat diidentifikasi otomatis dari teks Style',
+  };
+}
+
+/**
+ * Extracts standardized Production Stage and retains specific Line & Work Center info.
+ * Example: "Sewing Line 1" -> Stage: "Sewing", Work Center: "Sewing Line 1", Line: "Line 1"
+ *
+ * Rules:
+ * - Recognize stage based on actual Excel value.
+ * - Standardize into the 7 standard stages.
+ * - Preserve Line information (Sewing Line 1 vs Sewing Line 2 must NOT be merged).
+ * - Keep original Work Center string intact for full auditability.
+ * - Unrecognized stages are flagged as needs verification, NEVER deleted or forced into wrong stage.
+ */
+export interface StageWorkCenterExtraction {
+  raw: string;
+  stage: string;
+  workCenter: string;
+  line?: string;
+  isRecognized: boolean;
+  needsVerification: boolean;
+  issue?: string;
+}
+
+export function extractStageAndWorkCenter(rawValue: any): StageWorkCenterExtraction {
+  if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') {
+    return {
+      raw: '',
+      stage: 'Cutting',
+      workCenter: 'Unassigned',
+      isRecognized: false,
+      needsVerification: true,
+      issue: 'Kolom Work Center/Tahapan kosong',
+    };
+  }
+
+  const raw = String(rawValue).trim();
+  const lower = raw.toLowerCase();
+
+  // Extract Line info if present (e.g., "Line 1", "Line 02", "Line B", "Station 1", "Section A")
+  const lineMatch = raw.match(/(?:line|section|area|station|meja)\s*([A-Za-z0-9_-]+)/i);
+  const line = lineMatch ? lineMatch[0].trim() : undefined;
+
+  // 1. Penerimaan Ironning
+  if (/penerimaan[_\s.-]?iron|terima[_\s.-]?iron|receiving[_\s.-]?iron/i.test(lower)) {
+    return {
+      raw,
+      stage: 'Penerimaan Ironning',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 2. Ironning
+  if (/iron|setrika|gosok|pressing/i.test(lower)) {
+    return {
+      raw,
+      stage: 'Ironning',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 3. QC Finishing
+  if (/qc[_\s.-]?finish|finishing[_\s.-]?qc|finish[_\s.-]?qc/i.test(lower)) {
+    return {
+      raw,
+      stage: 'QC Finishing',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 4. QC Ukur
+  if (/qc[_\s.-]?ukur|measurement|ukur|size[_\s.-]?spec/i.test(lower)) {
+    return {
+      raw,
+      stage: 'QC Ukur',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 5. QA
+  if (/^qa\b|quality[_\s.-]?assurance|audit[_\s.-]?qa|final[_\s.-]?audit/i.test(lower)) {
+    return {
+      raw,
+      stage: 'QA',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 6. Sewing
+  if (/sewing|jahit/i.test(lower)) {
+    return {
+      raw,
+      stage: 'Sewing',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // 7. Cutting
+  if (/cutting|potong/i.test(lower)) {
+    return {
+      raw,
+      stage: 'Cutting',
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // Check exact standard stage match
+  const exact = STANDARD_PRODUCTION_STAGES.find((s) => s.toLowerCase() === lower);
+  if (exact) {
+    return {
+      raw,
+      stage: exact,
+      workCenter: raw,
+      line,
+      isRecognized: true,
+      needsVerification: false,
+    };
+  }
+
+  // Stage is not in the standard 7 stages:
+  // Retain raw stage and flag for verification without deleting
+  return {
+    raw,
+    stage: raw,
+    workCenter: raw,
+    line,
+    isRecognized: false,
+    needsVerification: true,
+    issue: `Tahapan "${raw}" belum termasuk dalam 7 tahapan standar`,
+  };
 }
 
 /**
@@ -40,12 +311,10 @@ export function normalizeProductionStage(raw: string): string {
 export function normalizeExcelDate(val: any): string | undefined {
   if (val === null || val === undefined || val === '') return undefined;
 
-  // If already YYYY-MM-DD
   if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val.trim())) {
     return val.trim();
   }
 
-  // If number (Excel serial date)
   if (typeof val === 'number') {
     try {
       const parsed = XLSX.SSF.parse_date_code(val);
@@ -60,7 +329,6 @@ export function normalizeExcelDate(val: any): string | undefined {
     }
   }
 
-  // If Date object
   if (val instanceof Date && !isNaN(val.getTime())) {
     const y = val.getFullYear();
     const m = String(val.getMonth() + 1).padStart(2, '0');
@@ -68,19 +336,16 @@ export function normalizeExcelDate(val: any): string | undefined {
     return `${y}-${m}-${d}`;
   }
 
-  // If string date like DD/MM/YYYY or MM/DD/YYYY
   if (typeof val === 'string') {
     const trimmed = val.trim();
     const parts = trimmed.split(/[/.-]/);
     if (parts.length === 3) {
-      // If 4-digit year at end: DD/MM/YYYY or MM/DD/YYYY
       if (parts[2].length === 4) {
         const y = parts[2];
         const m = parts[1].padStart(2, '0');
         const d = parts[0].padStart(2, '0');
         return `${y}-${m}-${d}`;
       }
-      // If 4-digit year at start: YYYY/MM/DD
       if (parts[0].length === 4) {
         return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
       }
@@ -98,47 +363,206 @@ export function normalizeExcelDate(val: any): string | undefined {
 }
 
 /**
- * Fuzzy matches Excel column names to standard PPIC target keys.
+ * Checks if raw headers match a given header pattern (fuzzy or exact).
  */
-export function detectColumnMappings(headers: string[]): Partial<ColumnMappingConfig> {
+function findMatchingHeader(headers: string[], pattern: RegExp | string): string | undefined {
+  if (typeof pattern === 'string') {
+    const cleanPattern = pattern.toLowerCase().replace(/\s+/g, ' ').trim();
+    return headers.find(
+      (h) => h.toLowerCase().replace(/\s+/g, ' ').trim() === cleanPattern
+    );
+  }
+  return headers.find((h) => pattern.test(h.trim()));
+}
+
+/**
+ * Tests if the file headers match known templates (Built-in or saved custom profiles).
+ */
+export function recognizeTemplate(
+  headers: string[],
+  customProfiles: TemplateProfile[] = []
+): {
+  isRecognized: boolean;
+  templateName?: string;
+  mapping: Partial<ColumnMappingConfig>;
+} {
+  const allProfiles = [BUILTIN_STANDARD_TEMPLATE_PROFILE, ...customProfiles];
+
+  // 1. Check if headers match standard PPIC template headers
+  // Headers:
+  // C: Customer/Display Name
+  // D: Routing/Display Name
+  // E: Work Orders/Style/Display Name
+  // F: Work Orders/Work Center/Display Name
+  // G: Work Orders/Original Production Q
+  // H: Work Orders/Quantity
+  // I: Work Orders/Qty Sisa
+  // J: Work Orders/Qty Repair
+
+  const headerStyle = findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?style[_\s/.-]?display[_\s.-]?name/i) ||
+    findMatchingHeader(headers, /style[_\s/.-]?display[_\s.-]?name/i);
+  const headerWC = findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i) ||
+    findMatchingHeader(headers, /work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i);
+
+  if (headerStyle && headerWC) {
+    const headerCustomer =
+      findMatchingHeader(headers, /customer[_\s/.-]?display[_\s.-]?name/i) ||
+      findMatchingHeader(headers, /^customer$/i) ||
+      findMatchingHeader(headers, /^buyer$/i);
+    const headerRouting =
+      findMatchingHeader(headers, /routing[_\s/.-]?display[_\s.-]?name/i) ||
+      findMatchingHeader(headers, /^routing$/i);
+    const headerOrigQty =
+      findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?original[_\s.-]?production[_\s.-]?q/i) ||
+      findMatchingHeader(headers, /original[_\s.-]?production[_\s.-]?q/i) ||
+      findMatchingHeader(headers, /original[_\s.-]?qty/i);
+    const headerQty =
+      findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?quantity/i) ||
+      findMatchingHeader(headers, /^quantity$/i) ||
+      findMatchingHeader(headers, /^qty$/i);
+    const headerQtySisa =
+      findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?qty[_\s.-]?sisa/i) ||
+      findMatchingHeader(headers, /qty[_\s.-]?sisa/i) ||
+      findMatchingHeader(headers, /remaining[_\s.-]?qty/i) ||
+      findMatchingHeader(headers, /sisa/i);
+    const headerQtyRepair =
+      findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?qty[_\s.-]?repair/i) ||
+      findMatchingHeader(headers, /qty[_\s.-]?repair/i) ||
+      findMatchingHeader(headers, /repair[_\s.-]?qty/i);
+
+    const mapping: Partial<ColumnMappingConfig> = {
+      buyer: headerCustomer,
+      routing: headerRouting,
+      style: headerStyle,
+      workCenter: headerWC,
+      originalQty: headerOrigQty,
+      quantity: headerQty,
+      remainingQty: headerQtySisa,
+      repairQty: headerQtyRepair,
+      // Default aliases for compatibility
+      moNumber: headerStyle,
+      productionStage: headerWC,
+      targetQty: headerOrigQty || headerQty,
+    };
+
+    return {
+      isRecognized: true,
+      templateName: 'PPIC Standard Work Orders Template',
+      mapping,
+    };
+  }
+
+  // 2. Check against custom saved profiles
+  for (const profile of customProfiles) {
+    const matchesAll = profile.headerSignatures.every((sig) =>
+      findMatchingHeader(headers, sig)
+    );
+    if (matchesAll) {
+      return {
+        isRecognized: true,
+        templateName: profile.name,
+        mapping: { ...profile.mapping },
+      };
+    }
+  }
+
+  return {
+    isRecognized: false,
+    mapping: {},
+  };
+}
+
+/**
+ * Fuzzy matches Excel column names to standard PPIC target keys when template is not recognized.
+ */
+export function detectColumnMappings(
+  headers: string[],
+  customProfiles: TemplateProfile[] = []
+): Partial<ColumnMappingConfig> {
+  // First, check template recognition
+  const recognized = recognizeTemplate(headers, customProfiles);
+  if (recognized.isRecognized) {
+    return recognized.mapping;
+  }
+
+  // Fallback smart detection
   const mapping: Partial<ColumnMappingConfig> = {};
 
   const patterns: Record<keyof ColumnMappingConfig, RegExp[]> = {
     moNumber: [
       /^(mo|no[_\s.-]?mo|nomor[_\s.-]?mo|order[_\s.-]?no|spk|no[_\s.-]?spk|work[_\s.-]?order|mfg[_\s.-]?order|wo[_\s.-]?no)$/i,
+      /work[_\s.-]?orders?[_\s/.-]?style/i,
       /mo/i,
-      /order/i,
       /spk/i,
     ],
     style: [
-      /^(style|style[_\s.-]?no|item|article|model|product|sku|kode[_\s.-]?barang|nama[_\s.-]?barang)$/i,
+      /work[_\s.-]?orders?[_\s/.-]?style[_\s/.-]?display[_\s.-]?name/i,
+      /style[_\s/.-]?display[_\s.-]?name/i,
+      /^(style|style[_\s.-]?no|item|article|model|product|sku)$/i,
       /style/i,
       /article/i,
-      /item/i,
     ],
     workCenter: [
-      /^(work[_\s.-]?center|wc|line|line[_\s.-]?produksi|dept|department|station|workshop|line[_\s.-]?no)$/i,
+      /work[_\s.-]?orders?[_\s/.-]?work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i,
+      /work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i,
+      /^(work[_\s.-]?center|wc|line|line[_\s.-]?produksi|dept|department|station)$/i,
       /work[_\s.-]?center/i,
       /line/i,
-      /dept/i,
     ],
     productionStage: [
+      /work[_\s.-]?orders?[_\s/.-]?work[_\s.-]?center/i,
       /^(stage|tahap|tahapan|proses|operation|process|step|urutan)$/i,
       /stage/i,
       /proses/i,
       /tahap/i,
     ],
+    originalQty: [
+      /work[_\s.-]?orders?[_\s/.-]?original[_\s.-]?production[_\s.-]?q/i,
+      /original[_\s.-]?production[_\s.-]?q/i,
+      /original[_\s.-]?qty/i,
+      /rencana[_\s.-]?produksi/i,
+    ],
+    quantity: [
+      /work[_\s.-]?orders?[_\s/.-]?quantity/i,
+      /^(quantity|qty|jumlah|order[_\s.-]?qty)$/i,
+      /quantity/i,
+    ],
+    remainingQty: [
+      /work[_\s.-]?orders?[_\s/.-]?qty[_\s.-]?sisa/i,
+      /qty[_\s.-]?sisa/i,
+      /remaining[_\s.-]?qty/i,
+      /sisa/i,
+      /backlog/i,
+    ],
+    repairQty: [
+      /work[_\s.-]?orders?[_\s/.-]?qty[_\s.-]?repair/i,
+      /^(repair[_\s.-]?qty|qty[_\s.-]?repair|jumlah[_\s.-]?repair|repair)$/i,
+    ],
+    reworkQty: [
+      /^(rework[_\s.-]?qty|qty[_\s.-]?rework|jumlah[_\s.-]?rework|rework)$/i,
+    ],
     targetQty: [
-      /^(qty|quantity|target|target[_\s.-]?qty|plan[_\s.-]?qty|order[_\s.-]?qty|jumlah|rencana|target[_\s.-]?produksi)$/i,
+      /work[_\s.-]?orders?[_\s/.-]?original[_\s.-]?production[_\s.-]?q/i,
+      /^(target|target[_\s.-]?qty|plan[_\s.-]?qty|target[_\s.-]?produksi)$/i,
       /target/i,
       /plan/i,
-      /qty/i,
     ],
     actualQty: [
       /^(actual|actual[_\s.-]?qty|output|qty[_\s.-]?aktual|hasil|realisasi|completed|selesai)$/i,
       /actual/i,
       /output/i,
       /realisasi/i,
+    ],
+    routing: [
+      /routing[_\s/.-]?display[_\s.-]?name/i,
+      /^(routing|alur|rute|flow)$/i,
+      /routing/i,
+    ],
+    buyer: [
+      /customer[_\s/.-]?display[_\s.-]?name/i,
+      /^(buyer|customer|pemesan|klien|pelanggan)$/i,
+      /customer/i,
+      /buyer/i,
     ],
     qaStatus: [
       /^(qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|inspeksi|hasil[_\s.-]?qc)$/i,
@@ -147,33 +571,13 @@ export function detectColumnMappings(headers: string[]): Partial<ColumnMappingCo
       /quality/i,
     ],
     sewingCondition: [
-      /^(kondisi[_\s.-]?sewing|status[_\s.-]?sewing|sewing[_\s.-]?condition|sewing[_\s.-]?status|repair[_\s.-]?rework)$/i,
+      /^(kondisi[_\s.-]?sewing|status[_\s.-]?sewing|sewing[_\s.-]?condition)$/i,
       /kondisi/i,
     ],
-    repairQty: [
-      /^(repair[_\s.-]?qty|qty[_\s.-]?repair|jumlah[_\s.-]?repair|repair)$/i,
-    ],
-    reworkQty: [
-      /^(rework[_\s.-]?qty|qty[_\s.-]?rework|jumlah[_\s.-]?rework|rework)$/i,
-    ],
-    startDate: [
-      /^(start[_\s.-]?date|tgl[_\s.-]?mulai|tanggal[_\s.-]?mulai|start|mulai)$/i,
-      /mulai/i,
-      /start/i,
-    ],
-    endDate: [
-      /^(end[_\s.-]?date|tgl[_\s.-]?selesai|tanggal[_\s.-]?selesai|end|selesai|due[_\s.-]?date|deadline)$/i,
-      /selesai/i,
-      /due/i,
-      /deadline/i,
-    ],
-    deliveryDate: [
-      /^(delivery[_\s.-]?date|tgl[_\s.-]?kirim|tanggal[_\s.-]?pengiriman|ship[_\s.-]?date|tgl[_\s.-]?ekspedisi)$/i,
-      /kirim/i,
-      /delivery/i,
-    ],
-    buyer: [/^(buyer|customer|pemesan|klien|pelanggan)$/i, /buyer/i, /customer/i],
-    notes: [/^(notes|catatan|keterangan|remark|remarks)$/i, /catatan/i, /remark/i],
+    startDate: [/^(start[_\s.-]?date|tgl[_\s.-]?mulai|tanggal[_\s.-]?mulai|start|mulai)$/i],
+    endDate: [/^(end[_\s.-]?date|tgl[_\s.-]?selesai|tanggal[_\s.-]?selesai|end|selesai|due[_\s.-]?date)$/i],
+    deliveryDate: [/^(delivery[_\s.-]?date|tgl[_\s.-]?kirim|tanggal[_\s.-]?pengiriman|ship[_\s.-]?date)$/i],
+    notes: [/^(notes|catatan|keterangan|remark|remarks)$/i],
   };
 
   const usedHeaders = new Set<string>();
@@ -197,12 +601,15 @@ export function detectColumnMappings(headers: string[]): Partial<ColumnMappingCo
 
 /**
  * Parses raw Excel file buffer into structured sheets, headers, preview rows, and normalized orders.
+ * Reads ALL worksheets or selected worksheet and all rows.
+ * Processes multi-stage rows per Style without dropping rows.
  */
 export function parseExcelWorkbook(
   data: ArrayBuffer | ArrayBufferLike,
   fileName: string,
   preferredSheet?: string,
-  customMapping?: Partial<ColumnMappingConfig>
+  customMapping?: Partial<ColumnMappingConfig>,
+  customProfiles: TemplateProfile[] = []
 ): ExcelParsingResult {
   const workbook = XLSX.read(data, { type: 'array', cellDates: true });
   const sheetNames = workbook.SheetNames;
@@ -223,112 +630,182 @@ export function parseExcelWorkbook(
       sheets: sheetNames,
       selectedSheet,
       rawHeaders: [],
+      isTemplateRecognized: false,
       detectedMapping: {},
       rows: [],
       normalizedOrders: [],
-      summary: { totalRows: 0, moCount: 0, styleCount: 0, workCenterCount: 0 },
+      summary: {
+        totalRows: 0,
+        moCount: 0,
+        styleCount: 0,
+        workCenterCount: 0,
+        stageCount: 0,
+        sheetsProcessed: sheetNames.length,
+        needsVerificationCount: 0,
+      },
+      unrecognizedStages: [],
       warnings: ['Lembar kerja kosong atau tidak ada data yang terbaca.'],
     };
   }
 
-  // Extract all distinct keys from first rows
+  // Extract all distinct headers from rows
   const rawHeaders = Object.keys(rawJson[0] || {});
-  const detectedMapping = customMapping || detectColumnMappings(rawHeaders);
+
+  // Template recognition
+  const templateCheck = recognizeTemplate(rawHeaders, customProfiles);
+  const isTemplateRecognized = templateCheck.isRecognized;
+  const matchedTemplateName = templateCheck.templateName;
+
+  const detectedMapping =
+    customMapping && Object.keys(customMapping).length > 0
+      ? customMapping
+      : isTemplateRecognized
+      ? templateCheck.mapping
+      : detectColumnMappings(rawHeaders, customProfiles);
+
   const warnings: string[] = [];
 
-  // Validation checks
-  if (!detectedMapping.moNumber) {
-    warnings.push('Kolom Nomor MO (Manufacturing Order) tidak terdeteksi otomatis.');
-  }
-  if (!detectedMapping.style) {
-    warnings.push('Kolom Style tidak terdeteksi otomatis.');
-  }
-  if (!detectedMapping.workCenter) {
-    warnings.push('Kolom Work Center tidak terdeteksi otomatis.');
+  if (!isTemplateRecognized) {
+    warnings.push(
+      'Template belum dikenali otomatis. Sistem menggunakan smart detection. Silakan periksa mapping kolom di Advanced Mapping.'
+    );
   }
 
   const batchId = `BATCH-${Date.now()}`;
   const seenMOs = new Set<string>();
-  const duplicateMOs = new Set<string>();
   const uniqueStyles = new Set<string>();
   const uniqueWorkCenters = new Set<string>();
+  const uniqueStages = new Set<string>();
+  const unrecognizedStagesSet = new Set<string>();
 
+  let needsVerificationCount = 0;
   const normalizedOrders: ManufacturingOrder[] = [];
 
   rawJson.forEach((row, idx) => {
-    const moRaw = detectedMapping.moNumber ? String(row[detectedMapping.moNumber] || '').trim() : '';
-    const styleRaw = detectedMapping.style ? String(row[detectedMapping.style] || '').trim() : '';
-    const wcRaw = detectedMapping.workCenter ? String(row[detectedMapping.workCenter] || '').trim() : '';
-    const stageRaw = detectedMapping.productionStage
-      ? String(row[detectedMapping.productionStage] || '').trim()
-      : 'General';
+    // 1. Style & MO Extraction
+    const styleRawCol = detectedMapping.style ? row[detectedMapping.style] : undefined;
+    const moExplicitCol = detectedMapping.moNumber && detectedMapping.moNumber !== detectedMapping.style
+      ? row[detectedMapping.moNumber]
+      : undefined;
 
-    if (!moRaw && !styleRaw) {
-      // skip completely empty rows
+    // Check if row is completely empty across all mapped columns
+    const hasAnyMappedData = Object.values(detectedMapping).some((col) => {
+      const val = col ? row[col] : undefined;
+      return val !== undefined && val !== null && String(val).trim() !== '';
+    });
+
+    if (!hasAnyMappedData) {
+      // Ignore blank empty rows (Requirement 8)
       return;
     }
 
-    const moNumber = moRaw || `MO-AUTO-${idx + 1}`;
-    if (seenMOs.has(moNumber)) {
-      duplicateMOs.add(moNumber);
-    } else {
-      seenMOs.add(moNumber);
+    const styleMO = extractStyleAndMO(styleRawCol);
+
+    let moNumber = styleMO.moNumber;
+    let style = styleMO.style;
+
+    // If explicit MO column is present and valid, prefer it
+    if (moExplicitCol && String(moExplicitCol).trim()) {
+      moNumber = String(moExplicitCol).trim();
     }
 
-    if (styleRaw) uniqueStyles.add(styleRaw);
-    if (wcRaw) uniqueWorkCenters.add(wcRaw);
+    // Row-level verification issues tracking
+    const verificationIssues: string[] = [];
+    let needsVerification = false;
 
-    const targetQtyRaw = detectedMapping.targetQty ? row[detectedMapping.targetQty] : 0;
-    const actualQtyRaw = detectedMapping.actualQty ? row[detectedMapping.actualQty] : 0;
+    if (!moNumber) {
+      needsVerification = true;
+      verificationIssues.push(
+        styleMO.issue || 'Nomor MO belum dapat diidentifikasi otomatis dari teks Style'
+      );
+      // Group rows that have identical style string so they form one unified entity
+      moNumber = `MO-${styleMO.raw || `ROW-${idx + 1}`}`;
+    }
 
-    const targetQty = Number(String(targetQtyRaw).replace(/[^0-9.-]+/g, '')) || 0;
-    const actualQty = Number(String(actualQtyRaw).replace(/[^0-9.-]+/g, '')) || 0;
+    // 2. Stage & Work Center Extraction
+    const wcRawCol = detectedMapping.workCenter ? row[detectedMapping.workCenter] : undefined;
+    const stageExplicitCol =
+      detectedMapping.productionStage && detectedMapping.productionStage !== detectedMapping.workCenter
+        ? row[detectedMapping.productionStage]
+        : undefined;
 
-    const productionStage = normalizeProductionStage(stageRaw);
+    const stageWC = extractStageAndWorkCenter(stageExplicitCol || wcRawCol);
 
-    // Parse Sewing condition, Repair and Rework
+    if (!stageWC.isRecognized) {
+      needsVerification = true;
+      unrecognizedStagesSet.add(stageWC.stage);
+      verificationIssues.push(stageWC.issue || `Tahapan "${stageWC.stage}" belum dikenali`);
+    }
+
+    // 3. Quantity Parsing
+    // Rules:
+    // - Original Production Q -> originalQty
+    // - Quantity -> quantity
+    // - Qty Sisa -> remainingQty
+    // - Qty Repair -> repairQty
+    // - Do NOT assume Quantity as Actual Production!
+    // - Do NOT create fake formulas for Output Actual!
+    const parseNum = (val: any): number | undefined => {
+      if (val === null || val === undefined || val === '') return undefined;
+      const clean = String(val).replace(/[^0-9.-]+/g, '');
+      if (clean === '') return undefined;
+      const num = Number(clean);
+      return isNaN(num) ? undefined : num;
+    };
+
+    const originalQty = detectedMapping.originalQty ? parseNum(row[detectedMapping.originalQty]) : undefined;
+    const quantity = detectedMapping.quantity ? parseNum(row[detectedMapping.quantity]) : undefined;
+    const remainingQty = detectedMapping.remainingQty ? parseNum(row[detectedMapping.remainingQty]) : undefined;
+    const repairQty = detectedMapping.repairQty ? parseNum(row[detectedMapping.repairQty]) : undefined;
+    const reworkQty = detectedMapping.reworkQty ? parseNum(row[detectedMapping.reworkQty]) : undefined;
+
+    // Target Qty defaults to originalQty, fallback to quantity or 0
+    const targetQty = originalQty ?? quantity ?? 0;
+
+    // Actual Qty: only if explicit actual column exists in Excel
+    let actualQty = 0;
+    if (detectedMapping.actualQty && row[detectedMapping.actualQty] !== undefined && row[detectedMapping.actualQty] !== '') {
+      actualQty = parseNum(row[detectedMapping.actualQty]) ?? 0;
+    }
+
+    // 4. Sewing Condition & Repair
+    // Qty Repair is strictly associated with Sewing. Never make it a QA status!
     let sewingCondition: 'Normal' | 'Repair' | 'Rework' | undefined = undefined;
-    let repairQty: number | undefined = undefined;
-    let reworkQty: number | undefined = undefined;
-
-    if (detectedMapping.sewingCondition && row[detectedMapping.sewingCondition] !== undefined) {
-      const condRaw = String(row[detectedMapping.sewingCondition]).trim();
-      if (/rework/i.test(condRaw)) sewingCondition = 'Rework';
-      else if (/repair/i.test(condRaw)) sewingCondition = 'Repair';
-      else if (condRaw) sewingCondition = 'Normal';
+    if (stageWC.stage === 'Sewing') {
+      if (repairQty && repairQty > 0) {
+        sewingCondition = 'Repair';
+      } else if (reworkQty && reworkQty > 0) {
+        sewingCondition = 'Rework';
+      } else if (detectedMapping.sewingCondition && row[detectedMapping.sewingCondition]) {
+        const cond = String(row[detectedMapping.sewingCondition]).trim();
+        if (/rework/i.test(cond)) sewingCondition = 'Rework';
+        else if (/repair/i.test(cond)) sewingCondition = 'Repair';
+        else if (cond) sewingCondition = 'Normal';
+      } else {
+        sewingCondition = 'Normal';
+      }
     }
 
-    if (detectedMapping.repairQty && row[detectedMapping.repairQty] !== undefined && row[detectedMapping.repairQty] !== '') {
-      repairQty = Number(String(row[detectedMapping.repairQty]).replace(/[^0-9.-]+/g, '')) || 0;
-      if (repairQty > 0 && !sewingCondition) sewingCondition = 'Repair';
-    }
-
-    if (detectedMapping.reworkQty && row[detectedMapping.reworkQty] !== undefined && row[detectedMapping.reworkQty] !== '') {
-      reworkQty = Number(String(row[detectedMapping.reworkQty]).replace(/[^0-9.-]+/g, '')) || 0;
-      if (reworkQty > 0) sewingCondition = 'Rework';
-    }
-
-    // Process QA status:
-    // Rule: QA NEVER has Repair or Rework status. If found in raw QA column, relocate to Sewing condition.
-    // Rule: Do NOT synthesize fake QA statuses (Passed, Pending, etc.) without actual Excel data.
+    // 5. QA Status
+    // Rule: QA NEVER has status Repair or Rework.
+    // Rule: Do NOT synthesize fake QA statuses if absent in Excel.
     const rawQA = detectedMapping.qaStatus ? String(row[detectedMapping.qaStatus] || '').trim() : '';
     let qaStatus: string | undefined = undefined;
-
     if (rawQA) {
-      if (/repair/i.test(rawQA)) {
-        if (!sewingCondition || productionStage === 'Sewing') {
-          sewingCondition = 'Repair';
+      if (/repair|rework/i.test(rawQA)) {
+        if (stageWC.stage === 'Sewing' && !sewingCondition) {
+          sewingCondition = /rework/i.test(rawQA) ? 'Rework' : 'Repair';
         }
-        qaStatus = undefined; // QA does not have status Repair
-      } else if (/rework/i.test(rawQA)) {
-        if (!sewingCondition || productionStage === 'Sewing') {
-          sewingCondition = 'Rework';
-        }
-        qaStatus = undefined; // QA does not have status Rework
+        qaStatus = undefined;
       } else {
         qaStatus = rawQA;
       }
     }
+
+    // Customer & Routing
+    const buyer = detectedMapping.buyer ? String(row[detectedMapping.buyer] || '').trim() || undefined : undefined;
+    const routing = detectedMapping.routing ? String(row[detectedMapping.routing] || '').trim() || undefined : undefined;
+    const notes = detectedMapping.notes ? String(row[detectedMapping.notes] || '').trim() || undefined : undefined;
 
     const startDate = detectedMapping.startDate ? normalizeExcelDate(row[detectedMapping.startDate]) : undefined;
     const endDate = detectedMapping.endDate ? normalizeExcelDate(row[detectedMapping.endDate]) : undefined;
@@ -336,48 +813,53 @@ export function parseExcelWorkbook(
       ? normalizeExcelDate(row[detectedMapping.deliveryDate])
       : undefined;
 
-    const buyer = detectedMapping.buyer ? String(row[detectedMapping.buyer] || '').trim() : undefined;
-    const notes = detectedMapping.notes ? String(row[detectedMapping.notes] || '').trim() : undefined;
-
-    // Check notes for Sewing repair/rework if not set
-    if (!sewingCondition && notes && productionStage === 'Sewing') {
-      if (/rework/i.test(notes)) sewingCondition = 'Rework';
-      else if (/repair/i.test(notes)) sewingCondition = 'Repair';
+    if (needsVerification) {
+      needsVerificationCount++;
     }
+
+    seenMOs.add(moNumber);
+    if (style) uniqueStyles.add(style);
+    if (stageWC.workCenter) uniqueWorkCenters.add(stageWC.workCenter);
+    if (stageWC.stage) uniqueStages.add(stageWC.stage);
 
     normalizedOrders.push({
       id: `${batchId}-${idx + 1}`,
       moNumber,
-      style: styleRaw || 'Unknown Style',
-      workCenter: wcRaw || 'Unassigned WC',
-      productionStage,
+      style: style || 'Unknown Style',
+      workCenter: stageWC.workCenter,
+      productionStage: stageWC.stage,
       targetQty,
       actualQty,
-      qaStatus,
-      sewingCondition,
+      originalQty,
+      quantity,
+      remainingQty,
       repairQty,
       reworkQty,
+      routing,
+      buyer,
+      line: stageWC.line,
+      rawStyle: styleMO.raw,
+      rawWorkCenter: stageWC.raw,
+      qaStatus,
+      sewingCondition,
       startDate,
       endDate,
       deliveryDate,
-      buyer,
       notes,
       batchId,
+      needsVerification,
+      verificationIssues: verificationIssues.length > 0 ? verificationIssues : undefined,
       customAttributes: row,
     });
   });
-
-  if (duplicateMOs.size > 0) {
-    warnings.push(
-      `Terdapat ${duplicateMOs.size} nomor MO yang muncul di beberapa baris detail (misalnya sub-proses atau ukuran berbeda). Data baris detail tetap dipertahankan.`
-    );
-  }
 
   return {
     fileName,
     sheets: sheetNames,
     selectedSheet,
     rawHeaders,
+    isTemplateRecognized,
+    matchedTemplateName,
     detectedMapping,
     rows: rawJson,
     normalizedOrders,
@@ -386,191 +868,153 @@ export function parseExcelWorkbook(
       moCount: seenMOs.size,
       styleCount: uniqueStyles.size,
       workCenterCount: uniqueWorkCenters.size,
+      stageCount: uniqueStages.size,
+      sheetsProcessed: sheetNames.length,
+      needsVerificationCount,
     },
+    unrecognizedStages: Array.from(unrecognizedStagesSet),
     warnings,
   };
 }
 
 /**
- * Generates a realistic sample Excel (.xlsx) file that can be downloaded or loaded directly.
+ * Generates an Excel (.xlsx) file conforming exactly to the user's operational PPIC template structure:
+ * Column C: Customer/Display Name
+ * Column D: Routing/Display Name
+ * Column E: Work Orders/Style/Display Name (format: [UNSIO1-1] UNSI JSU MHS 01)
+ * Column F: Work Orders/Work Center/Display Name (e.g., Sewing Line 1, Sewing Line 2, etc.)
+ * Column G: Work Orders/Original Production Q
+ * Column H: Work Orders/Quantity
+ * Column I: Work Orders/Qty Sisa
+ * Column J: Work Orders/Qty Repair
  */
 export function generateSampleExcelWorkbook(): Uint8Array {
   const sampleData = [
     {
-      'Nomor MO': 'MO-2026-101',
-      'Style': 'Mens Pique Polo Shirt',
-      'Work Center': 'Cutting Section A',
-      'Tahap Produksi': 'Cutting',
-      'Target Qty': 1200,
-      'Actual Qty': 1200,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': 'Passed Fabric Inspection',
-      'Tgl Mulai': '2026-11-01',
-      'Tgl Selesai': '2026-11-05',
-      'Tgl Pengiriman': '2026-11-18',
-      'Buyer': 'Uniqlo Global',
-      'Catatan': 'Priority batch 1 for Spring launch',
+      'No': 1,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'Cutting Section A',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 0,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-102',
-      'Style': 'Mens Pique Polo Shirt',
-      'Work Center': 'Sewing Line 01',
-      'Tahap Produksi': 'Sewing',
-      'Target Qty': 1200,
-      'Actual Qty': 950,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-04',
-      'Tgl Selesai': '2026-11-14',
-      'Tgl Pengiriman': '2026-11-18',
-      'Buyer': 'Uniqlo Global',
-      'Catatan': 'Collar attachment running on schedule',
+      'No': 2,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'Sewing Line 1',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 250,
+      'Work Orders/Qty Repair': 15,
     },
     {
-      'Nomor MO': 'MO-2026-103',
-      'Style': 'Heavyweight Cotton Hoodie',
-      'Work Center': 'Sewing Line 02',
-      'Tahap Produksi': 'Sewing',
-      'Target Qty': 2000,
-      'Actual Qty': 750,
-      'Kondisi Sewing': 'Rework',
-      'Qty Repair': 0,
-      'Qty Rework': 45,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-08',
-      'Tgl Selesai': '2026-11-20',
-      'Tgl Pengiriman': '2026-11-28',
-      'Buyer': 'H&M Basic',
-      'Catatan': 'Cuff stitching tension recalibrated',
+      'No': 3,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'Area Penerimaan Ironning',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 350,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-104',
-      'Style': 'Oxford Casual Button-Down',
-      'Work Center': 'Sewing Line 01',
-      'Tahap Produksi': 'Sewing',
-      'Target Qty': 600,
-      'Actual Qty': 220,
-      'Kondisi Sewing': 'Repair',
-      'Qty Repair': 18,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-10',
-      'Tgl Selesai': '2026-11-22',
-      'Tgl Pengiriman': '2026-11-26',
-      'Buyer': 'Marks & Spencer',
-      'Catatan': 'Collar point repair minor alignment',
+      'No': 4,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'Ironning Station 01',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 480,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-105',
-      'Style': 'Slim Fit Chino Trousers',
-      'Work Center': 'Area Penerimaan Ironning',
-      'Tahap Produksi': 'Penerimaan Ironning',
-      'Target Qty': 850,
-      'Actual Qty': 850,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-09',
-      'Tgl Selesai': '2026-11-12',
-      'Tgl Pengiriman': '2026-11-20',
-      'Buyer': 'Zara Men',
-      'Catatan': 'Batch transfer from sewing verified',
+      'No': 5,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'QC Finishing Line',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 600,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-106',
-      'Style': 'Slim Fit Chino Trousers',
-      'Work Center': 'Ironning Station 01',
-      'Tahap Produksi': 'Ironning',
-      'Target Qty': 850,
-      'Actual Qty': 480,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-11',
-      'Tgl Selesai': '2026-11-16',
-      'Tgl Pengiriman': '2026-11-20',
-      'Buyer': 'Zara Men',
-      'Catatan': 'Crease line pressing in progress',
+      'No': 6,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'QC Ukur Station',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 600,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-107',
-      'Style': 'Water-Repellent Windbreaker',
-      'Work Center': 'QC Finishing Line',
-      'Tahap Produksi': 'QC Finishing',
-      'Target Qty': 1500,
-      'Actual Qty': 1100,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-12',
-      'Tgl Selesai': '2026-11-19',
-      'Tgl Pengiriman': '2026-11-30',
-      'Buyer': 'Columbia Sportswear',
-      'Catatan': 'Zipper puller & snap button checking',
+      'No': 7,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Uniqlo Global Retail',
+      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Work Center/Display Name': 'QA Audit Room',
+      'Work Orders/Original Production Q': 1200,
+      'Work Orders/Quantity': 1200,
+      'Work Orders/Qty Sisa': 600,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-108',
-      'Style': 'Water-Repellent Windbreaker',
-      'Work Center': 'QC Ukur Station',
-      'Tahap Produksi': 'QC Ukur',
-      'Target Qty': 1500,
-      'Actual Qty': 750,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': '',
-      'Tgl Mulai': '2026-11-14',
-      'Tgl Selesai': '2026-11-22',
-      'Tgl Pengiriman': '2026-11-30',
-      'Buyer': 'Columbia Sportswear',
-      'Catatan': 'Measurement spec sheet tolerance ±0.5cm',
+      'No': 8,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'H&M Basic Apparel',
+      'Routing/Display Name': 'RT-HOODIE-CW-02',
+      'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
+      'Work Orders/Work Center/Display Name': 'Cutting Section B',
+      'Work Orders/Original Production Q': 2000,
+      'Work Orders/Quantity': 2000,
+      'Work Orders/Qty Sisa': 0,
+      'Work Orders/Qty Repair': 0,
     },
     {
-      'Nomor MO': 'MO-2026-109',
-      'Style': 'Denim Jacket Vintage Wash',
-      'Work Center': 'QA Audit Room',
-      'Tahap Produksi': 'QA',
-      'Target Qty': 900,
-      'Actual Qty': 900,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': 'Passed AQL 1.5 Final Audit',
-      'Tgl Mulai': '2026-11-12',
-      'Tgl Selesai': '2026-11-18',
-      'Tgl Pengiriman': '2026-11-24',
-      'Buyer': 'Levi Strauss & Co',
-      'Catatan': 'Final carton packing audit approved',
+      'No': 9,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'H&M Basic Apparel',
+      'Routing/Display Name': 'RT-HOODIE-CW-02',
+      'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
+      'Work Orders/Work Center/Display Name': 'Sewing Line 2',
+      'Work Orders/Original Production Q': 2000,
+      'Work Orders/Quantity': 2000,
+      'Work Orders/Qty Sisa': 1250,
+      'Work Orders/Qty Repair': 28,
     },
     {
-      'Nomor MO': 'MO-2026-110',
-      'Style': 'Athletic Dry-Fit Tee',
-      'Work Center': 'QA Audit Room',
-      'Tahap Produksi': 'QA',
-      'Target Qty': 3000,
-      'Actual Qty': 2850,
-      'Kondisi Sewing': 'Normal',
-      'Qty Repair': 0,
-      'Qty Rework': 0,
-      'Status QA': 'Audit Selesai 2026-11-15',
-      'Tgl Mulai': '2026-11-10',
-      'Tgl Selesai': '2026-11-16',
-      'Tgl Pengiriman': '2026-11-19',
-      'Buyer': 'Decathlon',
-      'Catatan': 'Audit sampling completed',
+      'No': 10,
+      'Plant': 'PLANT-01',
+      'Customer/Display Name': 'Marks & Spencer',
+      'Routing/Display Name': 'RT-CHINO-SLIM-03',
+      'Work Orders/Style/Display Name': '[UNSIO1-3] UNSI CHINO PANTS 03',
+      'Work Orders/Work Center/Display Name': 'Sewing Line 1',
+      'Work Orders/Original Production Q': 850,
+      'Work Orders/Quantity': 850,
+      'Work Orders/Qty Sisa': 370,
+      'Work Orders/Qty Repair': 12,
     },
   ];
 
   const ws = XLSX.utils.json_to_sheet(sampleData);
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'PPIC_Production_Orders');
+  XLSX.utils.book_append_sheet(wb, ws, 'Production_Work_Orders');
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   return new Uint8Array(out);
 }

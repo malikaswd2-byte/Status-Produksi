@@ -1,14 +1,14 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { usePPIC } from '../context/PPICContext';
 import {
   parseExcelWorkbook,
-  detectColumnMappings,
   generateSampleExcelWorkbook,
 } from '../services/excelParser';
 import {
   ColumnMappingConfig,
   ExcelParsingResult,
   UploadBatch,
+  TemplateProfile,
 } from '../types/ppic';
 import {
   UploadCloud,
@@ -16,18 +16,29 @@ import {
   CheckCircle2,
   AlertTriangle,
   Database,
-  ArrowRight,
   Download,
   Trash2,
   Check,
   RefreshCw,
-  FileText,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
+  BookmarkPlus,
+  Search,
+  Layers,
+  Wrench,
+  RotateCcw,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 
 export const UploadView: React.FC = () => {
   const {
     activeBatch,
     batches,
+    templateProfiles,
+    saveTemplateProfile,
+    deleteTemplateProfile,
     confirmUploadBatch,
     switchActiveBatch,
     deleteBatch,
@@ -42,8 +53,17 @@ export const UploadView: React.FC = () => {
   const [selectedSheet, setSelectedSheet] = useState('');
   const [manualMapping, setManualMapping] = useState<Partial<ColumnMappingConfig>>({});
   const [dragOver, setDragOver] = useState(false);
+  const [showAdvancedMapping, setShowAdvancedMapping] = useState(false);
+  const [previewSearch, setPreviewSearch] = useState('');
+  const [previewPage, setPreviewPage] = useState(1);
+  const previewItemsPerPage = 10;
 
-  // Handle file selection
+  // New Template Profile modal/input
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [newProfileDesc, setNewProfileDesc] = useState('');
+
+  // Handle file selection & parsing
   const handleFile = async (file: File) => {
     if (!file) return;
     const name = file.name;
@@ -62,11 +82,26 @@ export const UploadView: React.FC = () => {
       const buffer = await file.arrayBuffer();
       setFileBuffer(buffer);
 
-      const parsed = parseExcelWorkbook(buffer, name);
+      const parsed = parseExcelWorkbook(buffer, name, undefined, undefined, templateProfiles);
       setParseResult(parsed);
       setSelectedSheet(parsed.selectedSheet);
       setManualMapping(parsed.detectedMapping);
-      showToast(`File ${name} berhasil dibaca (${parsed.summary.totalRows} baris data)`, 'success');
+
+      // If recognized, keep advanced mapping collapsed; if not recognized, expand it
+      setShowAdvancedMapping(!parsed.isTemplateRecognized);
+      setPreviewPage(1);
+
+      if (parsed.isTemplateRecognized) {
+        showToast(
+          `Template "${parsed.matchedTemplateName}" dikenali otomatis! (${parsed.summary.totalRows} baris data)`,
+          'success'
+        );
+      } else {
+        showToast(
+          `File ${name} dibaca (${parsed.summary.totalRows} baris). Silakan periksa pemetaan kolom.`,
+          'info'
+        );
+      }
     } catch (err: any) {
       showToast(err.message || 'Gagal membaca file Excel', 'error');
       setParseResult(null);
@@ -80,9 +115,10 @@ export const UploadView: React.FC = () => {
     if (!fileBuffer || !fileName) return;
     setSelectedSheet(sheet);
     try {
-      const parsed = parseExcelWorkbook(fileBuffer, fileName, sheet, manualMapping);
+      const parsed = parseExcelWorkbook(fileBuffer, fileName, sheet, manualMapping, templateProfiles);
       setParseResult(parsed);
       setManualMapping(parsed.detectedMapping);
+      setPreviewPage(1);
     } catch (err: any) {
       showToast(err.message || 'Gagal mengganti lembar kerja', 'error');
     }
@@ -95,7 +131,13 @@ export const UploadView: React.FC = () => {
 
     if (fileBuffer && fileName && selectedSheet) {
       try {
-        const reParsed = parseExcelWorkbook(fileBuffer, fileName, selectedSheet, updated);
+        const reParsed = parseExcelWorkbook(
+          fileBuffer,
+          fileName,
+          selectedSheet,
+          updated,
+          templateProfiles
+        );
         setParseResult(reParsed);
       } catch {
         // ignore
@@ -103,12 +145,38 @@ export const UploadView: React.FC = () => {
     }
   };
 
-  // User confirmation to activate dataset (Section 3.A step 8)
+  // Save current mapping configuration as a reusable Template Profile (Requirement 7)
+  const handleSaveProfile = () => {
+    if (!newProfileName.trim()) {
+      showToast('Nama konfigurasi template harus diisi!', 'error');
+      return;
+    }
+    if (!parseResult) return;
+
+    // Collect non-empty mapped headers as signature
+    const signatures = Object.values(manualMapping).filter(Boolean) as string[];
+
+    const newProfile: TemplateProfile = {
+      id: `tpl-${Date.now()}`,
+      name: newProfileName.trim(),
+      description: newProfileDesc.trim() || 'Konfigurasi template kustom PPIC',
+      headerSignatures: Array.from(new Set(signatures)),
+      mapping: manualMapping,
+      createdAt: new Date().toISOString(),
+    };
+
+    saveTemplateProfile(newProfile);
+    setIsSavingProfile(false);
+    setNewProfileName('');
+    setNewProfileDesc('');
+  };
+
+  // Confirm Import & Activate Dataset (Requirements 6, 8, 10)
   const handleConfirmActivation = () => {
     if (!parseResult) return;
 
-    if (!manualMapping.moNumber || !manualMapping.style) {
-      showToast('Pemetaan kolom MO dan Style wajib ditentukan sebelum konfirmasi!', 'error');
+    if (parseResult.normalizedOrders.length === 0) {
+      showToast('Tidak ada data produksi yang dapat diimpor!', 'error');
       return;
     }
 
@@ -132,7 +200,7 @@ export const UploadView: React.FC = () => {
       rawRowsSample: parseResult.rows.slice(0, 5),
     };
 
-    // Update batchId on parsed orders
+    // Link batchId cleanly to all normalized orders without losing metadata
     const ordersWithBatchId = parseResult.normalizedOrders.map((o) => ({
       ...o,
       batchId: newBatchId,
@@ -144,6 +212,7 @@ export const UploadView: React.FC = () => {
     setFileName('');
   };
 
+  // Download official sample Excel file
   const handleDownloadTemplate = () => {
     try {
       const buffer = generateSampleExcelWorkbook();
@@ -158,11 +227,36 @@ export const UploadView: React.FC = () => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('Template Excel PPIC berhasil diunduh', 'success');
+      showToast('Template resmi Excel PPIC berhasil diunduh', 'success');
     } catch {
       showToast('Gagal membuat file template Excel', 'error');
     }
   };
+
+  // Filtered preview rows
+  const filteredPreviewRows = useMemo(() => {
+    if (!parseResult) return [];
+    if (!previewSearch.trim()) return parseResult.normalizedOrders;
+    const q = previewSearch.toLowerCase().trim();
+
+    return parseResult.normalizedOrders.filter((row) => {
+      return (
+        row.moNumber?.toLowerCase().includes(q) ||
+        row.style?.toLowerCase().includes(q) ||
+        row.workCenter?.toLowerCase().includes(q) ||
+        row.productionStage?.toLowerCase().includes(q) ||
+        row.buyer?.toLowerCase().includes(q) ||
+        row.routing?.toLowerCase().includes(q) ||
+        row.line?.toLowerCase().includes(q)
+      );
+    });
+  }, [parseResult, previewSearch]);
+
+  const previewTotalPages = Math.ceil(filteredPreviewRows.length / previewItemsPerPage) || 1;
+  const paginatedPreviewRows = filteredPreviewRows.slice(
+    (previewPage - 1) * previewItemsPerPage,
+    previewPage * previewItemsPerPage
+  );
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-8">
@@ -170,10 +264,10 @@ export const UploadView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-slate-900 tracking-tight">
-            Excel Ingestion & Data Batches
+            Excel Ingestion & Automatic Template Recognition
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Unggah file Excel operasional (.xlsx / .xls), lakukan pemetaan kolom, dan aktifkan batch data
+            Unggah file Excel operasional produksi (.xlsx / .xls). Sistem secara otomatis mengenali template, memetakan kolom, dan mengekstrak data tahapan.
           </p>
         </div>
 
@@ -182,7 +276,7 @@ export const UploadView: React.FC = () => {
           className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-md transition-colors shadow-2xs"
         >
           <Download className="w-3.5 h-3.5 text-slate-500" />
-          <span>Download Format Template Excel (.xlsx)</span>
+          <span>Download Template Standar PPIC (.xlsx)</span>
         </button>
       </div>
 
@@ -201,10 +295,10 @@ export const UploadView: React.FC = () => {
           }
         }}
         onClick={() => fileInputRef.current?.click()}
-        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors ${
+        className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 ${
           dragOver
             ? 'border-blue-500 bg-blue-50/50'
-            : 'border-slate-300 hover:border-slate-400 bg-white'
+            : 'border-slate-300 hover:border-blue-400 bg-white'
         }`}
       >
         <input
@@ -223,7 +317,7 @@ export const UploadView: React.FC = () => {
           Pilih atau Tarik File Excel (.xlsx / .xls) ke Sini
         </h3>
         <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-          Mendukung lembar kerja tunggal maupun multi-sheet. Sistem akan memindai header dan struktur kolom secara otomatis.
+          Mendukung format template PPIC standar. Sistem akan langsung memetakan Customer, Routing, Style/MO, Work Center/Line, Qty Original, Qty, Qty Sisa, dan Repair.
         </p>
 
         {isProcessing && (
@@ -234,18 +328,19 @@ export const UploadView: React.FC = () => {
         )}
       </div>
 
-      {/* Parse Preview & Column Mapping Stage (Visible when file is parsed) */}
+      {/* Parse Preview & Automatic Mapping Interface (Section 6, 7, 9) */}
       {parseResult && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm space-y-6 p-6">
+          {/* Top File & Sheet Info */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200">
-            <div>
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+            <div className="flex items-center gap-2.5">
+              <FileSpreadsheet className="w-6 h-6 text-emerald-600 shrink-0" />
+              <div>
                 <h3 className="text-base font-bold text-slate-900">{parseResult.fileName}</h3>
+                <p className="text-xs text-slate-500">
+                  Pratinjau data siap diimpor. Periksa ringkasan dan tabel pratinjau sebelum konfirmasi.
+                </p>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Pratinjau data berhasil dibuat. Periksa pemetaan kolom sebelum mengonfirmasi aktivasi.
-              </p>
             </div>
 
             {/* Sheet Selector */}
@@ -267,42 +362,159 @@ export const UploadView: React.FC = () => {
             )}
           </div>
 
-          {/* Parsing Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* 
+            Requirement 6: Automatic Recognition Banner & Summary
+            When recognized: No manual mapping shown by default; shows clean summary metrics
+          */}
+          {parseResult.isTemplateRecognized ? (
+            <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white shrink-0 mt-0.5">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-bold text-emerald-950">
+                      Template Berhasil Dikenali Otomatis: {parseResult.matchedTemplateName}
+                    </h4>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 bg-emerald-200/80 text-emerald-900 rounded-full">
+                      Auto-Mapped
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                    Struktur kolom produksi terdeteksi sesuai template. Seluruh 8 field operasional (Customer, Routing, Style/MO, Work Center/Line, Original Qty, Quantity, Qty Sisa, dan Repair) dipetakan secara otomatis tanpa perlu konfigurasi manual.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-xl">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center text-white shrink-0 mt-0.5">
+                  <AlertTriangle className="w-4 h-4" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-bold text-amber-950">
+                      Struktur Template Belum Dikenali Otomatis
+                    </h4>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 bg-amber-200/80 text-amber-900 rounded-full">
+                      Smart Fallback
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                    Sistem menggunakan deteksi pintar. Silakan periksa atau sesuaikan pemetaan kolom di bagian <strong>Advanced Mapping</strong> di bawah. Anda juga dapat menyimpannya sebagai template baru untuk pemakaian berikutnya.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 
+            Requirement 6: Parsing Summary Metrics
+            - Template berhasil dikenali
+            - Jumlah worksheet diproses
+            - Jumlah baris data
+            - Jumlah MO
+            - Jumlah Style
+            - Jumlah Production Stage
+            - Jumlah Work Center atau Line
+            - Jumlah data yang perlu diperiksa
+          */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[11px] text-slate-500 font-medium uppercase block">Total Baris</span>
-              <span className="text-xl font-bold font-mono text-slate-900">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Worksheet
+              </span>
+              <span className="text-lg font-bold font-mono text-slate-900">
+                {parseResult.summary.sheetsProcessed}
+              </span>
+              <span className="text-[10px] text-slate-400 block truncate" title={selectedSheet}>
+                {selectedSheet}
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Baris Data
+              </span>
+              <span className="text-lg font-bold font-mono text-slate-900">
                 {parseResult.summary.totalRows}
               </span>
+              <span className="text-[10px] text-slate-400 block">terbaca penuh</span>
             </div>
+
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[11px] text-slate-500 font-medium uppercase block">Unique MO</span>
-              <span className="text-xl font-bold font-mono text-blue-600">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Jumlah MO
+              </span>
+              <span className="text-lg font-bold font-mono text-blue-600">
                 {parseResult.summary.moCount}
               </span>
+              <span className="text-[10px] text-slate-400 block">entitas unik</span>
             </div>
+
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[11px] text-slate-500 font-medium uppercase block">Unique Style</span>
-              <span className="text-xl font-bold font-mono text-indigo-600">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Jumlah Style
+              </span>
+              <span className="text-lg font-bold font-mono text-indigo-600">
                 {parseResult.summary.styleCount}
               </span>
+              <span className="text-[10px] text-slate-400 block">model produk</span>
             </div>
+
             <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-              <span className="text-[11px] text-slate-500 font-medium uppercase block">Work Center</span>
-              <span className="text-xl font-bold font-mono text-amber-600">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Tahap Produksi
+              </span>
+              <span className="text-lg font-bold font-mono text-emerald-600">
+                {parseResult.summary.stageCount}
+              </span>
+              <span className="text-[10px] text-slate-400 block">tahapan alur</span>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wider block">
+                Work Center / Line
+              </span>
+              <span className="text-lg font-bold font-mono text-amber-600">
                 {parseResult.summary.workCenterCount}
+              </span>
+              <span className="text-[10px] text-slate-400 block">stasiun & line</span>
+            </div>
+
+            <div
+              className={`p-3 rounded-lg border ${
+                parseResult.summary.needsVerificationCount > 0
+                  ? 'bg-amber-50 border-amber-300'
+                  : 'bg-emerald-50/50 border-emerald-200'
+              }`}
+            >
+              <span className="text-[10px] text-slate-600 font-medium uppercase tracking-wider block">
+                Perlu Diperiksa
+              </span>
+              <span
+                className={`text-lg font-bold font-mono ${
+                  parseResult.summary.needsVerificationCount > 0 ? 'text-amber-700' : 'text-emerald-700'
+                }`}
+              >
+                {parseResult.summary.needsVerificationCount}
+              </span>
+              <span className="text-[10px] text-slate-500 block">
+                {parseResult.summary.needsVerificationCount > 0 ? 'perlu verifikasi' : 'semua valid'}
               </span>
             </div>
           </div>
 
           {/* Warnings List */}
           {parseResult.warnings.length > 0 && (
-            <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-lg text-xs space-y-1.5">
+            <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg text-xs space-y-1">
               <div className="flex items-center gap-1.5 font-semibold text-amber-900">
-                <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
-                Catatan Integritas Data Excel:
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                Catatan Sistem & Integritas Data:
               </div>
-              <ul className="list-disc list-inside text-amber-800 space-y-1 pl-1">
+              <ul className="list-disc list-inside text-amber-800 space-y-0.5 pl-1">
                 {parseResult.warnings.map((warn, i) => (
                   <li key={i}>{warn}</li>
                 ))}
@@ -310,109 +522,300 @@ export const UploadView: React.FC = () => {
             </div>
           )}
 
-          {/* Flexible Column Mapping Matrix (Section 3.B) */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                Konfigurasi Pemetaan Kolom (Flexible Column Mapping)
-              </h4>
-              <span className="text-[11px] text-slate-500">
-                Sesuaikan jika ada kolom yang perlu dikoreksi secara manual
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {[
-                { key: 'moNumber' as const, label: 'Nomor MO *', required: true },
-                { key: 'style' as const, label: 'Nama Style *', required: true },
-                { key: 'workCenter' as const, label: 'Work Center *', required: true },
-                { key: 'productionStage' as const, label: 'Tahap Produksi', required: false },
-                { key: 'targetQty' as const, label: 'Target Produksi (Qty)', required: false },
-                { key: 'actualQty' as const, label: 'Output Aktual', required: false },
-                { key: 'sewingCondition' as const, label: 'Kondisi Sewing (Normal/Repair/Rework)', required: false },
-                { key: 'repairQty' as const, label: 'Qty Repair (Sewing)', required: false },
-                { key: 'reworkQty' as const, label: 'Qty Rework (Sewing)', required: false },
-                { key: 'qaStatus' as const, label: 'Status / Hasil QA (Aktual Excel)', required: false },
-                { key: 'startDate' as const, label: 'Tanggal Mulai', required: false },
-                { key: 'endDate' as const, label: 'Tanggal Selesai', required: false },
-                { key: 'deliveryDate' as const, label: 'Tanggal Pengiriman', required: false },
-                { key: 'buyer' as const, label: 'Buyer / Pemesan', required: false },
-                { key: 'notes' as const, label: 'Catatan / Remark', required: false },
-              ].map(({ key, label, required }) => (
-                <div key={key} className="p-2.5 bg-slate-50 rounded border border-slate-200">
-                  <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    {label}
-                  </label>
-                  <select
-                    value={manualMapping[key] || ''}
-                    onChange={(e) => handleMappingChange(key, e.target.value)}
-                    className="w-full py-1 px-2 text-xs bg-white border border-slate-200 rounded text-slate-800 focus:outline-hidden focus:border-blue-500"
-                  >
-                    <option value="">-- Tidak Dipetakan --</option>
-                    {parseResult.rawHeaders.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
+          {/* 
+            Requirement 6 & 7: Advanced Mapping Toggle
+            Hidden by default when template is recognized, can be opened for manual fine-tuning
+          */}
+          <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50/50">
+            <button
+              onClick={() => setShowAdvancedMapping(!showAdvancedMapping)}
+              className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-slate-100/70 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-slate-600" />
+                <div>
+                  <span className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Advanced Mapping & Template Customization
+                  </span>
+                  <span className="text-[11px] text-slate-500 ml-2">
+                    {parseResult.isTemplateRecognized
+                      ? '(Opsional — pemetaan otomatis sudah aktif)'
+                      : '(Diperlukan — sesuaikan kolom yang belum pas)'}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs font-medium text-blue-600">
+                <span>{showAdvancedMapping ? 'Tutup Pengaturan' : 'Buka Pengaturan'}</span>
+                {showAdvancedMapping ? (
+                  <ChevronUp className="w-4 h-4 text-slate-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-slate-500" />
+                )}
+              </div>
+            </button>
+
+            {showAdvancedMapping && (
+              <div className="p-4 border-t border-slate-200 bg-white space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                  <p className="text-xs text-slate-500">
+                    Pilih kolom Excel yang bersesuaian dengan atribut sistem PPIC.
+                  </p>
+
+                  <button
+                    onClick={() => setIsSavingProfile(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-md transition-colors"
+                  >
+                    <BookmarkPlus className="w-3.5 h-3.5" />
+                    Simpan Sebagai Profil Template
+                  </button>
+                </div>
+
+                {/* Save Profile Form Modal/Inline */}
+                {isSavingProfile && (
+                  <div className="p-3 bg-blue-50/70 border border-blue-200 rounded-lg space-y-2 text-xs">
+                    <span className="font-bold text-blue-900 block">
+                      Simpan Konfigurasi Pemetaan Ini Sebagai Template Profile:
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nama Template (misal: Template Garment Odoo V1)"
+                        value={newProfileName}
+                        onChange={(e) => setNewProfileName(e.target.value)}
+                        className="py-1 px-2.5 bg-white border border-blue-200 rounded text-slate-800 text-xs focus:outline-hidden focus:border-blue-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Deskripsi singkat (opsional)"
+                        value={newProfileDesc}
+                        onChange={(e) => setNewProfileDesc(e.target.value)}
+                        className="py-1 px-2.5 bg-white border border-blue-200 rounded text-slate-800 text-xs focus:outline-hidden focus:border-blue-500"
+                      />
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        onClick={() => setIsSavingProfile(false)}
+                        className="px-2.5 py-1 text-slate-600 hover:text-slate-800 font-medium"
+                      >
+                        Batal
+                      </button>
+                      <button
+                        onClick={handleSaveProfile}
+                        className="px-3 py-1 bg-blue-600 text-white font-medium rounded hover:bg-blue-700"
+                      >
+                        Simpan Template
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Grid of Mapping Selects */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {[
+                    { key: 'buyer' as const, label: 'Customer / Buyer (Kolom C)', required: false },
+                    { key: 'routing' as const, label: 'Routing / Alur (Kolom D)', required: false },
+                    { key: 'style' as const, label: 'Style & MO Identity (Kolom E) *', required: true },
+                    { key: 'workCenter' as const, label: 'Work Center & Line (Kolom F) *', required: true },
+                    { key: 'originalQty' as const, label: 'Original Production Qty (Kolom G)', required: false },
+                    { key: 'quantity' as const, label: 'Quantity (Kolom H)', required: false },
+                    { key: 'remainingQty' as const, label: 'Remaining Qty / Qty Sisa (Kolom I)', required: false },
+                    { key: 'repairQty' as const, label: 'Repair Qty (Kolom J - Sewing)', required: false },
+                    { key: 'productionStage' as const, label: 'Tahap Produksi (Khusus jika terpisah)', required: false },
+                    { key: 'moNumber' as const, label: 'Nomor MO (Khusus jika terpisah)', required: false },
+                    { key: 'qaStatus' as const, label: 'Status QA (Aktual Excel saja)', required: false },
+                    { key: 'deliveryDate' as const, label: 'Tanggal Pengiriman', required: false },
+                  ].map(({ key, label, required }) => (
+                    <div key={key} className="p-2.5 bg-slate-50 rounded border border-slate-200">
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1 truncate" title={label}>
+                        {label}
+                      </label>
+                      <select
+                        value={manualMapping[key] || ''}
+                        onChange={(e) => handleMappingChange(key, e.target.value)}
+                        className="w-full py-1 px-2 text-xs bg-white border border-slate-200 rounded text-slate-800 focus:outline-hidden focus:border-blue-500"
+                      >
+                        <option value="">-- Tidak Dipetakan --</option>
+                        {parseResult.rawHeaders.map((h) => (
+                          <option key={h} value={h}>
+                            {h}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Preview Table of Normalized Rows */}
-          <div className="space-y-2 pt-2">
-            <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-              Pratinjau Hasil Normalisasi (10 Baris Pertama)
-            </h4>
+          {/* 
+            Requirement 9: Preview Hasil Import
+            Table Columns:
+            - Customer
+            - MO
+            - Style
+            - Routing
+            - Production Stage
+            - Work Center / Line
+            - Original Production Quantity
+            - Quantity
+            - Remaining Quantity
+            - Repair Quantity
+          */}
+          <div className="space-y-3 pt-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Pratinjau Hasil Ekstraksi Data Produksi
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Menampilkan hasil normalisasi 10 kolom operasional sesuai data aktual Excel
+                </p>
+              </div>
+
+              {/* Search Bar for preview */}
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Cari MO, Style, Line, Buyer..."
+                  value={previewSearch}
+                  onChange={(e) => {
+                    setPreviewSearch(e.target.value);
+                    setPreviewPage(1);
+                  }}
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:bg-white focus:outline-hidden focus:border-blue-500 text-slate-800"
+                />
+              </div>
+            </div>
+
             <div className="overflow-x-auto border border-slate-200 rounded-lg">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[11px]">
                   <tr>
-                    <th className="py-2 px-3 font-semibold">Nomor MO</th>
-                    <th className="py-2 px-3 font-semibold">Style</th>
-                    <th className="py-2 px-3 font-semibold">Work Center</th>
-                    <th className="py-2 px-3 font-semibold">Tahap</th>
-                    <th className="py-2 px-3 font-semibold text-right">Target</th>
-                    <th className="py-2 px-3 font-semibold text-right">Aktual</th>
-                    <th className="py-2 px-3 font-semibold">Status QA</th>
-                    <th className="py-2 px-3 font-semibold">Tgl Kirim</th>
+                    <th className="py-2.5 px-3 font-semibold">Customer</th>
+                    <th className="py-2.5 px-3 font-semibold">MO</th>
+                    <th className="py-2.5 px-3 font-semibold">Style</th>
+                    <th className="py-2.5 px-3 font-semibold">Routing</th>
+                    <th className="py-2.5 px-3 font-semibold">Tahap Produksi</th>
+                    <th className="py-2.5 px-3 font-semibold">Work Center / Line</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Original Qty</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Quantity</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Qty Sisa</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Qty Repair</th>
+                    <th className="py-2.5 px-3 font-semibold text-center">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-                  {parseResult.normalizedOrders.slice(0, 10).map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50">
-                      <td className="py-2 px-3 font-semibold text-blue-600">{row.moNumber}</td>
-                      <td className="py-2 px-3 font-sans text-slate-800">{row.style}</td>
-                      <td className="py-2 px-3 font-sans text-slate-700">{row.workCenter}</td>
-                      <td className="py-2 px-3 font-sans text-slate-700">
-                        {row.productionStage}
-                        {row.productionStage === 'Sewing' && row.sewingCondition && row.sewingCondition !== 'Normal' && (
-                          <span className={`ml-1 text-[10px] font-semibold px-1 rounded ${
-                            row.sewingCondition === 'Rework'
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {row.sewingCondition}
+                <tbody className="divide-y divide-slate-100 text-[11px]">
+                  {paginatedPreviewRows.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50/70">
+                      <td className="py-2 px-3 text-slate-800 font-medium truncate max-w-[130px]" title={row.buyer}>
+                        {row.buyer || '-'}
+                      </td>
+                      <td className="py-2 px-3 font-mono font-semibold text-blue-600">
+                        {row.moNumber}
+                      </td>
+                      <td className="py-2 px-3 text-slate-800 truncate max-w-[160px]" title={row.style}>
+                        {row.style}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-slate-600 truncate max-w-[120px]" title={row.routing}>
+                        {row.routing || '-'}
+                      </td>
+                      <td className="py-2 px-3 text-slate-700">
+                        <span className="font-semibold text-slate-800">{row.productionStage}</span>
+                      </td>
+                      <td className="py-2 px-3 text-slate-700">
+                        <span>{row.workCenter}</span>
+                        {row.line && row.line !== row.workCenter && (
+                          <span className="ml-1 text-[10px] text-slate-400 font-mono">({row.line})</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-right text-slate-700 tabular-nums">
+                        {row.originalQty !== undefined ? row.originalQty.toLocaleString() : '-'}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-right text-slate-700 tabular-nums">
+                        {row.quantity !== undefined ? row.quantity.toLocaleString() : '-'}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-right tabular-nums">
+                        {row.remainingQty !== undefined ? (
+                          <span className={row.remainingQty > 0 ? 'text-amber-700 font-bold' : 'text-slate-500'}>
+                            {row.remainingQty.toLocaleString()}
+                          </span>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td className="py-2 px-3 font-mono text-right tabular-nums">
+                        {row.repairQty !== undefined && row.repairQty > 0 ? (
+                          <span className="text-amber-700 font-bold">{row.repairQty.toLocaleString()}</span>
+                        ) : (
+                          <span className="text-slate-400">0</span>
+                        )}
+                      </td>
+                      <td className="py-2 px-3 text-center">
+                        {row.needsVerification ? (
+                          <span
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded cursor-help"
+                            title={row.verificationIssues?.join(', ')}
+                          >
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            Cek
+                          </span>
+                        ) : row.productionStage === 'Sewing' && row.repairQty && row.repairQty > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
+                            <Wrench className="w-3 h-3 text-amber-600" />
+                            Repair
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                            Valid
                           </span>
                         )}
                       </td>
-                      <td className="py-2 px-3 text-right text-slate-700">{row.targetQty.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-right text-emerald-700 font-semibold">{row.actualQty.toLocaleString()}</td>
-                      <td className="py-2 px-3 font-sans">{row.qaStatus || '-'}</td>
-                      <td className="py-2 px-3 text-slate-600">{row.deliveryDate || '-'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination for Preview */}
+            <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+              <span className="font-mono">
+                Menampilkan {paginatedPreviewRows.length} dari {filteredPreviewRows.length} baris data
+                {previewSearch ? ` (difilter dari ${parseResult.normalizedOrders.length})` : ''}
+              </span>
+
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px]">
+                  Hal {previewPage} / {previewTotalPages}
+                </span>
+                <button
+                  disabled={previewPage <= 1}
+                  onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                  className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Sebelumnya
+                </button>
+                <button
+                  disabled={previewPage >= previewTotalPages}
+                  onClick={() => setPreviewPage((p) => Math.min(previewTotalPages, p + 1))}
+                  className="px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Selanjutnya
+                </button>
+              </div>
+            </div>
           </div>
 
-          {/* Confirmation Action Bar (Section 3.A Step 8) */}
+          {/* Action Bar: Confirm Import & Activate Dataset */}
           <div className="pt-4 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 -mx-6 -mb-6 p-6">
-            <p className="text-xs text-slate-600">
-              Data belum diaktifkan. Klik tombol konfirmasi untuk menerapkan batch ini sebagai dataset operasional aktif.
-            </p>
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <Info className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                Data pada pratinjau belum tersimpan ke dataset aktif sampai Anda menekan tombol konfirmasi.
+              </span>
+            </div>
 
             <div className="flex items-center gap-3">
               <button
@@ -421,7 +824,7 @@ export const UploadView: React.FC = () => {
                   setFileBuffer(null);
                   setFileName('');
                 }}
-                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-md"
+                className="px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 rounded-md shadow-2xs"
               >
                 Batal
               </button>
@@ -430,12 +833,88 @@ export const UploadView: React.FC = () => {
                 className="flex items-center gap-2 px-5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-xs transition-colors"
               >
                 <Check className="w-4 h-4" />
-                Konfirmasi & Jadikan Data Aktif
+                Confirm Import & Aktifkan Dataset
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* Template Profiles Section (Requirement 7) */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <BookmarkPlus className="w-4 h-4 text-indigo-600" />
+              Daftar Profil Template Excel (Template Profiles)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Konfigurasi template yang tersimpan untuk mengenali file Excel otomatis saat di-upload
+            </p>
+          </div>
+          <span className="text-xs font-mono text-slate-500">
+            {templateProfiles.length} template terdaftar
+          </span>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+          {templateProfiles.map((tpl) => (
+            <div
+              key={tpl.id}
+              className="p-4 rounded-lg border border-slate-200 bg-slate-50/50 flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-xs font-bold text-slate-900">{tpl.name}</h4>
+                    {tpl.isDefault && (
+                      <span className="text-[10px] font-semibold px-2 py-0.2 bg-blue-100 text-blue-800 rounded">
+                        Bawaan
+                      </span>
+                    )}
+                  </div>
+                  {!tpl.isDefault && (
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Hapus template profile "${tpl.name}"?`)) {
+                          deleteTemplateProfile(tpl.id);
+                        }
+                      }}
+                      className="text-slate-400 hover:text-rose-600"
+                      title="Hapus profil template"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-slate-600 mb-2.5">{tpl.description}</p>
+
+                <div className="space-y-1 text-[11px] text-slate-500 font-mono">
+                  <span className="font-sans font-semibold text-slate-700 block text-[10px] uppercase">
+                    Signature Headers:
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {tpl.headerSignatures.map((sig: string, i: number) => (
+                      <span
+                        key={i}
+                        className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-700 text-[10px]"
+                      >
+                        {sig}
+                      </span>
+                    ))}
+
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 mt-3 border-t border-slate-200/60 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                <span>Dibuat: {new Date(tpl.createdAt).toLocaleDateString('id-ID')}</span>
+                <span className="text-emerald-700 font-medium">Siap Digunakan</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Upload Batch History Section (Section 3.D) */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">

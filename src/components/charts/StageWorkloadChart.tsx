@@ -45,8 +45,12 @@ export const StageWorkloadChart: React.FC<StageWorkloadChartProps> = ({
       */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 my-6">
         {stages.map((stage) => {
-          const backlog = Math.max(0, stage.targetQty - stage.actualQty);
+          const backlog =
+            stage.remainingQty !== undefined && stage.remainingQty >= 0
+              ? stage.remainingQty
+              : Math.max(0, stage.targetQty - stage.actualQty);
           const hasSewingIssues =
+
             stage.stageName === 'Sewing' &&
             ((stage.repairCount && stage.repairCount > 0) ||
               (stage.reworkCount && stage.reworkCount > 0) ||
