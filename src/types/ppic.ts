@@ -94,6 +94,23 @@ export interface StyleSummary {
   orders: ManufacturingOrder[];
 }
 
+export interface MOGroup {
+  moNumber: string;
+  customer: string;
+  style: string;
+  routing: string;
+  stages: ManufacturingOrder[];
+  stageCount: number;
+  totalTargetQty: number;
+  totalActualQty: number;
+  totalRemainingQty: number;
+  progressPercent: number;
+  workCenters: string[];
+  stageNames: string[];
+  qaStatusSummary?: string;
+  status: 'On Track' | 'In Progress' | 'Behind' | 'Completed' | 'Pending';
+}
+
 export interface WorkCenterSummary {
   name: string;
   moCount: number;

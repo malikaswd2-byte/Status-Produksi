@@ -1,6 +1,7 @@
 import {
   ManufacturingOrder,
   StyleSummary,
+  MOGroup,
   WorkCenterSummary,
   ProductionStageSummary,
   QARecord,
@@ -13,6 +14,9 @@ import {
 /**
  * Filter orders based on active filter criteria.
  * Search matches against MO Number, Style, Work Center, Stage, Buyer, and Notes.
+ * Crucial Rule: When searching by text, matching is evaluated at the MO Group level.
+ * If an MO number, buyer/customer, style, or any of its stages/workcenters matches,
+ * all associated stages belonging to that MO are retained to prevent group fragmentation.
  */
 export function filterOrders(
   orders: ManufacturingOrder[],
@@ -20,9 +24,10 @@ export function filterOrders(
 ): ManufacturingOrder[] {
   const searchTerm = filters.search.trim().toLowerCase();
 
-  return orders.filter((order) => {
-    // 1. Text Search
-    if (searchTerm) {
+  // Find all MO numbers that match the search term across any of their row fields
+  const matchingMONumbers = new Set<string>();
+  if (searchTerm) {
+    for (const order of orders) {
       const matchMO = order.moNumber?.toLowerCase().includes(searchTerm);
       const matchStyle = order.style?.toLowerCase().includes(searchTerm);
       const matchWC = order.workCenter?.toLowerCase().includes(searchTerm);
@@ -33,18 +38,28 @@ export function filterOrders(
       const matchNotes = order.notes?.toLowerCase().includes(searchTerm);
 
       if (
-        !matchMO &&
-        !matchStyle &&
-        !matchWC &&
-        !matchStage &&
-        !matchBuyer &&
-        !matchRouting &&
-        !matchLine &&
-        !matchNotes
+        matchMO ||
+        matchStyle ||
+        matchWC ||
+        matchStage ||
+        matchBuyer ||
+        matchRouting ||
+        matchLine ||
+        matchNotes
       ) {
+        if (order.moNumber) {
+          matchingMONumbers.add(order.moNumber);
+        }
+      }
+    }
+  }
+
+  return orders.filter((order) => {
+    // 1. Text Search (Group-preserving: if the MO matches, all stages of that MO are included)
+    if (searchTerm) {
+      if (!order.moNumber || !matchingMONumbers.has(order.moNumber)) {
         return false;
       }
-
     }
 
     // 2. Work Center Filter
@@ -150,6 +165,103 @@ export function aggregateStyles(orders: ManufacturingOrder[]): StyleSummary[] {
 
   // Sort by target quantity descending
   return result.sort((a, b) => b.totalTargetQty - a.totalTargetQty);
+}
+
+/**
+ * Group manufacturing orders by MO Number (Display Name).
+ * Each MO group contains:
+ * - customer (Buyer): derived once for the group
+ * - moNumber: Display Name from Excel
+ * - style: associated Style
+ * - routing: associated Routing
+ * - stages: all individual stage rows sorted strictly by STANDARD_PRODUCTION_STAGES sequence
+ * - totals and progress metrics
+ *
+ * This structure enables clean HTML table rendering with merged/rowspan cells for Customer and MO,
+ * while maintaining pure 1-to-many relationship where each stage row retains its complete data.
+ */
+export function groupOrdersByMO(orders: ManufacturingOrder[]): MOGroup[] {
+  const map = new Map<string, ManufacturingOrder[]>();
+
+  for (const order of orders) {
+    const moKey = order.moNumber || '(MO Belum Ditetapkan)';
+    if (!map.has(moKey)) {
+      map.set(moKey, []);
+    }
+    map.get(moKey)!.push(order);
+  }
+
+  const groups: MOGroup[] = [];
+
+  for (const [moNumber, orderList] of map.entries()) {
+    // Sort stages strictly by standard production stages order (1. Cutting s/d 7. QA)
+    const sortedStages = [...orderList].sort((a, b) => {
+      const idxA = STANDARD_PRODUCTION_STAGES.indexOf(
+        a.productionStage as (typeof STANDARD_PRODUCTION_STAGES)[number]
+      );
+      const idxB = STANDARD_PRODUCTION_STAGES.indexOf(
+        b.productionStage as (typeof STANDARD_PRODUCTION_STAGES)[number]
+      );
+      const sortA = idxA !== -1 ? idxA : 999;
+      const sortB = idxB !== -1 ? idxB : 999;
+      return sortA - sortB;
+    });
+
+    const first = sortedStages[0] || {};
+    const customer = first.buyer || orderList.find((o) => o.buyer)?.buyer || '-';
+    const style = first.style || orderList.find((o) => o.style)?.style || '-';
+    const routing = first.routing || orderList.find((o) => o.routing)?.routing || '-';
+
+    const totalTargetQty = sortedStages.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
+    const totalActualQty = sortedStages.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+    const totalRemainingQty = sortedStages.reduce(
+      (sum, o) =>
+        sum +
+        (o.remainingQty !== undefined
+          ? Number(o.remainingQty)
+          : Math.max(0, (Number(o.targetQty) || 0) - (Number(o.actualQty) || 0))),
+      0
+    );
+
+    const progressPercent =
+      totalTargetQty > 0 ? Math.min(100, Math.round((totalActualQty / totalTargetQty) * 100)) : 0;
+
+    const workCenters = Array.from(new Set(sortedStages.map((o) => o.workCenter).filter(Boolean)));
+    const stageNames = Array.from(new Set(sortedStages.map((o) => o.productionStage).filter(Boolean)));
+
+    const qaOrder = sortedStages.find((o) => o.qaStatus);
+    const qaStatusSummary = qaOrder?.qaStatus;
+
+    let status: MOGroup['status'] = 'Pending';
+    if (totalTargetQty > 0 && totalActualQty >= totalTargetQty) {
+      status = 'Completed';
+    } else if (totalActualQty > 0 && progressPercent < 40) {
+      status = 'Behind';
+    } else if (totalActualQty > 0) {
+      status = 'In Progress';
+    } else {
+      status = 'Pending';
+    }
+
+    groups.push({
+      moNumber,
+      customer,
+      style,
+      routing,
+      stages: sortedStages,
+      stageCount: sortedStages.length,
+      totalTargetQty,
+      totalActualQty,
+      totalRemainingQty,
+      progressPercent,
+      workCenters,
+      stageNames,
+      qaStatusSummary,
+      status,
+    });
+  }
+
+  return groups;
 }
 
 /**

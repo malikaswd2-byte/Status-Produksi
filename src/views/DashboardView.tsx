@@ -6,6 +6,7 @@ import {
   aggregateStyles,
   aggregateProductionStages,
   aggregateQAStatus,
+  groupOrdersByMO,
 } from '../utils/ppicCalculations';
 import { FilterBar } from '../components/FilterBar';
 import { WorkCenterChart } from '../components/charts/WorkCenterChart';
@@ -21,6 +22,7 @@ import {
   CalendarCheck,
   TrendingUp,
   ArrowUpRight,
+  Building2,
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
@@ -33,6 +35,7 @@ export const DashboardView: React.FC = () => {
   const stylesData = aggregateStyles(filteredOrders);
   const stagesData = aggregateProductionStages(filteredOrders);
   const qaData = aggregateQAStatus(filteredOrders);
+  const moGroups = React.useMemo(() => groupOrdersByMO(filteredOrders), [filteredOrders]);
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -184,7 +187,7 @@ export const DashboardView: React.FC = () => {
           </button>
         </div>
 
-        {filteredOrders.length === 0 ? (
+        {moGroups.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-xs text-slate-500">
               Tidak ada Manufacturing Order yang cocok dengan filter aktif. Silakan reset filter atau masukkan kata kunci lain.
@@ -192,95 +195,173 @@ export const DashboardView: React.FC = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                 <tr>
-                  <th className="py-2.5 px-4 font-semibold">Nomor MO</th>
-                  <th className="py-2.5 px-4 font-semibold">Style</th>
-                  <th className="py-2.5 px-4 font-semibold">Work Center</th>
-                  <th className="py-2.5 px-4 font-semibold">Tahap</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Target (pcs)</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Output (pcs)</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Progres</th>
-                  <th className="py-2.5 px-4 font-semibold">Status QA</th>
-                  <th className="py-2.5 px-4 font-semibold text-right">Aksi</th>
+                  <th className="py-2.5 px-3.5 font-semibold border-r border-slate-200 min-w-[160px]">
+                    Customer / Buyer
+                  </th>
+                  <th className="py-2.5 px-3.5 font-semibold border-r border-slate-200 min-w-[140px]">
+                    Nomor MO
+                  </th>
+                  <th className="py-2.5 px-3.5 font-semibold border-r border-slate-200 min-w-[150px]">
+                    Style
+                  </th>
+                  <th className="py-2.5 px-3 font-semibold min-w-[130px]">Tahap</th>
+                  <th className="py-2.5 px-3 font-semibold min-w-[140px]">Work Center</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[85px]">Target</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[85px]">Output</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[80px]">Progres</th>
+                  <th className="py-2.5 px-3 font-semibold min-w-[130px]">Kondisi / QA</th>
+                  <th className="py-2.5 px-3 font-semibold text-right min-w-[80px]">Aksi</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredOrders.slice(0, 10).map((order) => {
-                  const progress =
-                    order.targetQty > 0
-                      ? Math.min(100, Math.round((order.actualQty / order.targetQty) * 100))
-                      : 0;
+              <tbody>
+                {moGroups.slice(0, 3).map((group) => {
+                  const stageCount = group.stages.length;
 
                   return (
-                    <tr
-                      key={order.id}
-                      onClick={() => setSelectedMO(order)}
-                      className="hover:bg-slate-50/80 cursor-pointer transition-colors"
-                    >
-                      <td className="py-2.5 px-4 font-mono font-semibold text-blue-600">
-                        {order.moNumber}
-                      </td>
-                      <td className="py-2.5 px-4 font-medium text-slate-800">{order.style}</td>
-                      <td className="py-2.5 px-4 text-slate-600">{order.workCenter}</td>
-                      <td className="py-2.5 px-4 text-slate-600">
-                        <span>{order.productionStage}</span>
-                        {order.productionStage === 'Sewing' && order.sewingCondition && order.sewingCondition !== 'Normal' && (
-                          <span
-                            className={`ml-1 text-[10px] font-semibold px-1 py-0.2 rounded ${
-                              order.sewingCondition === 'Rework'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
+                    <React.Fragment key={group.moNumber}>
+                      {group.stages.map((order, stageIdx) => {
+                        const isFirstRow = stageIdx === 0;
+                        const isLastRow = stageIdx === stageCount - 1;
+
+                        const progress =
+                          order.targetQty > 0
+                            ? Math.min(100, Math.round((order.actualQty / order.targetQty) * 100))
+                            : 0;
+
+                        return (
+                          <tr
+                            key={order.id}
+                            className={`hover:bg-blue-50/40 transition-colors ${
+                              isFirstRow ? 'border-t-2 border-slate-300' : 'border-t border-slate-100'
+                            } ${isLastRow ? 'border-b-2 border-slate-300' : ''}`}
                           >
-                            {order.sewingCondition}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-right text-slate-700">
-                        {order.targetQty.toLocaleString()}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-right text-emerald-700 font-semibold">
-                        {order.actualQty.toLocaleString()}
-                      </td>
-                      <td className="py-2.5 px-4 font-mono text-right">
-                        <span
-                          className={`font-semibold ${
-                            progress >= 100 ? 'text-emerald-700' : 'text-slate-800'
-                          }`}
-                        >
-                          {progress}%
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-4">
-                        {order.qaStatus ? (
-                          <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            {order.qaStatus}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400 font-mono text-xs">-</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-4 text-right">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedMO(order);
-                          }}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Detail →
-                        </button>
-                      </td>
-                    </tr>
+                            {/* Customer — Merged across all stages of this MO */}
+                            {isFirstRow && (
+                              <td
+                                rowSpan={stageCount}
+                                className="py-3 px-3.5 align-middle bg-slate-50/80 border-r border-slate-200 text-slate-800"
+                              >
+                                <div className="flex items-start gap-1.5">
+                                  <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                  <span className="font-semibold text-slate-900 block leading-tight text-xs">
+                                    {group.customer}
+                                  </span>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* Nomor MO — Merged across all stages of this MO */}
+                            {isFirstRow && (
+                              <td
+                                rowSpan={stageCount}
+                                className="py-3 px-3.5 align-middle bg-slate-50/80 border-r border-slate-200"
+                              >
+                                <div className="space-y-1">
+                                  <span className="font-mono font-bold text-blue-600 block text-xs">
+                                    {group.moNumber}
+                                  </span>
+                                  <span className="inline-block text-[10px] font-semibold px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                    {stageCount} Tahap
+                                  </span>
+                                </div>
+                              </td>
+                            )}
+
+                            {/* Style — Merged across all stages of this MO */}
+                            {isFirstRow && (
+                              <td
+                                rowSpan={stageCount}
+                                className="py-3 px-3.5 align-middle bg-slate-50/50 border-r border-slate-200 text-slate-800"
+                              >
+                                <span className="font-semibold text-slate-900 block text-xs" title={group.style}>
+                                  {group.style}
+                                </span>
+                              </td>
+                            )}
+
+                            {/* Tahap */}
+                            <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-nowrap">
+                              <span className="inline-flex items-center gap-1.5">
+                                <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-600 text-[10px] font-bold flex items-center justify-center">
+                                  {stageIdx + 1}
+                                </span>
+                                <span>{order.productionStage}</span>
+                              </span>
+                            </td>
+
+                            {/* Work Center */}
+                            <td className="py-2.5 px-3 text-slate-700 max-w-[140px] truncate" title={order.workCenter}>
+                              {order.workCenter}
+                            </td>
+
+                            {/* Target */}
+                            <td className="py-2.5 px-3 font-mono text-right text-slate-700">
+                              {order.targetQty.toLocaleString()}
+                            </td>
+
+                            {/* Output */}
+                            <td className="py-2.5 px-3 font-mono text-right font-semibold text-emerald-700">
+                              {order.actualQty.toLocaleString()}
+                            </td>
+
+                            {/* Progres */}
+                            <td className="py-2.5 px-3 text-right">
+                              <span
+                                className={`font-mono font-semibold text-xs ${
+                                  progress >= 100 ? 'text-emerald-700' : 'text-slate-800'
+                                }`}
+                              >
+                                {progress}%
+                              </span>
+                            </td>
+
+                            {/* Kondisi / QA */}
+                            <td className="py-2.5 px-3">
+                              {order.productionStage === 'Sewing' && order.sewingCondition && order.sewingCondition !== 'Normal' ? (
+                                <span
+                                  className={`text-[10px] font-semibold px-1 py-0.2 rounded ${
+                                    order.sewingCondition === 'Rework'
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {order.sewingCondition}
+                                </span>
+                              ) : order.productionStage === 'QA' && order.qaStatus ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                  {order.qaStatus}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-mono text-xs">-</span>
+                              )}
+                            </td>
+
+                            {/* Aksi */}
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedMO(order);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-800 font-medium hover:underline"
+                              >
+                                Detail →
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
-            {filteredOrders.length > 10 && (
+            {moGroups.length > 3 && (
               <div className="p-3 bg-slate-50 border-t border-slate-200 text-center text-xs text-slate-500">
-                Menampilkan 10 dari {filteredOrders.length} MO. Gunakan tab Production Monitoring untuk melihat seluruh tabel dengan pagination lengkap.
+                Menampilkan 3 Kelompok MO pertama. Buka tab Production Monitoring untuk melihat seluruh kelompok MO dengan pagination lengkap.
               </div>
             )}
           </div>

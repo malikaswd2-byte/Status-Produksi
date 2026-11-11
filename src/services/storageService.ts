@@ -8,11 +8,11 @@ import {
 import { BUILTIN_STANDARD_TEMPLATE_PROFILE } from './excelParser';
 
 const STORAGE_KEYS = {
-  BATCHES: 'ppic_upload_batches_v5',
-  ACTIVE_BATCH_ID: 'ppic_active_batch_id_v5',
-  ORDERS: 'ppic_orders_v5',
-  PRODUCTION_SCHEDULES: 'ppic_prod_schedules_v5',
-  DELIVERY_SCHEDULES: 'ppic_deliv_schedules_v5',
+  BATCHES: 'ppic_upload_batches_v6',
+  ACTIVE_BATCH_ID: 'ppic_active_batch_id_v6',
+  ORDERS: 'ppic_orders_v6',
+  PRODUCTION_SCHEDULES: 'ppic_prod_schedules_v6',
+  DELIVERY_SCHEDULES: 'ppic_deliv_schedules_v6',
   TEMPLATE_PROFILES: 'ppic_template_profiles_v1',
 };
 
@@ -36,11 +36,11 @@ export interface IPPICRepository {
 }
 
 
-const INITIAL_BATCH_ID = 'BATCH-20261108-SEED-V5';
+const INITIAL_BATCH_ID = 'BATCH-20261108-SEED-V6';
 
 const INITIAL_BATCH: UploadBatch = {
   id: INITIAL_BATCH_ID,
-  batchNumber: 'BATCH-202611-005',
+  batchNumber: 'BATCH-202611-006',
   fileName: 'Master_Production_Schedule_Standard_Stages.xlsx',
   uploadDate: '2026-11-08T08:00:00.000Z',
   totalRows: 10,
@@ -69,11 +69,11 @@ const INITIAL_BATCH: UploadBatch = {
 };
 
 const INITIAL_ORDERS: ManufacturingOrder[] = [
-  // 1. WH/MO/23169 — All 7 Standard Stages linked to same MO
+  // 1. WH/MO/23169 — All 7 Standard Stages linked to same MO (Customer: YAYASAN ENAM PEDULI PENDIDIKAN, Style: UNSI JSU MHS 01)
   {
     id: `${INITIAL_BATCH_ID}-1`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Cutting Section A',
     productionStage: 'Cutting',
     targetQty: 1200,
@@ -81,7 +81,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-01',
     endDate: '2026-11-05',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'Laser precision cutting complete',
     batchId: INITIAL_BATCH_ID,
@@ -89,7 +89,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-2`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Sewing Line 1',
     productionStage: 'Sewing',
     line: 'Line 1',
@@ -100,7 +100,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-04',
     endDate: '2026-11-14',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'Pocket stitching tension recalibrated',
     batchId: INITIAL_BATCH_ID,
@@ -108,7 +108,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-3`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Area Penerimaan Ironning',
     productionStage: 'Penerimaan Ironning',
     targetQty: 1200,
@@ -116,7 +116,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-08',
     endDate: '2026-11-12',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'Transferred from sewing line 1',
     batchId: INITIAL_BATCH_ID,
@@ -124,7 +124,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-4`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Ironning Station 01',
     productionStage: 'Ironning',
     line: 'Station 01',
@@ -133,7 +133,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-10',
     endDate: '2026-11-15',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'High pressure crease ironning in progress',
     batchId: INITIAL_BATCH_ID,
@@ -141,7 +141,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-5`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'QC Finishing Line',
     productionStage: 'QC Finishing',
     targetQty: 1200,
@@ -149,7 +149,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-12',
     endDate: '2026-11-16',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'Button & rivets inspection',
     batchId: INITIAL_BATCH_ID,
@@ -157,7 +157,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-6`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'QC Ukur Station',
     productionStage: 'QC Ukur',
     targetQty: 1200,
@@ -165,7 +165,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-13',
     endDate: '2026-11-17',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'Size spec tolerance check passed',
     batchId: INITIAL_BATCH_ID,
@@ -173,7 +173,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-7`,
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'QA Audit Room',
     productionStage: 'QA',
     targetQty: 1200,
@@ -182,7 +182,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-14',
     endDate: '2026-11-17',
     deliveryDate: '2026-11-18',
-    buyer: 'Uniqlo Global Retail',
+    buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
     routing: 'RT-POLO-MENS-V1',
     notes: 'AQL 1.5 final batch clearance',
     batchId: INITIAL_BATCH_ID,
@@ -192,7 +192,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-8`,
     moNumber: 'WH/MO/23170',
-    style: '[UNSIO1-2] UNSI HOODIE FLEECE 02',
+    style: 'UNSI HOODIE FLEECE 02',
     workCenter: 'Cutting Section B',
     productionStage: 'Cutting',
     targetQty: 2000,
@@ -200,7 +200,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-06',
     endDate: '2026-11-11',
     deliveryDate: '2026-11-28',
-    buyer: 'H&M Basic Apparel',
+    buyer: 'PT GLOBAL GARMINDO UTAMA',
     routing: 'RT-HOODIE-CW-02',
     notes: 'Spreading & bundle cutting complete',
     batchId: INITIAL_BATCH_ID,
@@ -208,7 +208,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-9`,
     moNumber: 'WH/MO/23170',
-    style: '[UNSIO1-2] UNSI HOODIE FLEECE 02',
+    style: 'UNSI HOODIE FLEECE 02',
     workCenter: 'Sewing Line 2',
     productionStage: 'Sewing',
     line: 'Line 2',
@@ -219,7 +219,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-08',
     endDate: '2026-11-20',
     deliveryDate: '2026-11-28',
-    buyer: 'H&M Basic Apparel',
+    buyer: 'PT GLOBAL GARMINDO UTAMA',
     routing: 'RT-HOODIE-CW-02',
     notes: 'Cuff rib attachment rework in progress',
     batchId: INITIAL_BATCH_ID,
@@ -229,7 +229,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
   {
     id: `${INITIAL_BATCH_ID}-10`,
     moNumber: 'WH/MO/23171',
-    style: '[UNSIO1-3] UNSI CHINO PANTS 03',
+    style: 'UNSI CHINO PANTS 03',
     workCenter: 'Sewing Line 1',
     productionStage: 'Sewing',
     line: 'Line 1',
@@ -239,7 +239,7 @@ const INITIAL_ORDERS: ManufacturingOrder[] = [
     startDate: '2026-11-10',
     endDate: '2026-11-22',
     deliveryDate: '2026-11-26',
-    buyer: 'Marks & Spencer',
+    buyer: 'CV SINAR MAKMUR TEKSTIL',
     routing: 'RT-CHINO-SLIM-03',
     notes: 'Waistband attach on schedule',
     batchId: INITIAL_BATCH_ID,
@@ -250,7 +250,7 @@ const INITIAL_PRODUCTION_SCHEDULES: ProductionSchedule[] = [
   {
     id: 'sched-1',
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Cutting Section A',
     startDate: '2026-11-01',
     endDate: '2026-11-05',
@@ -262,7 +262,7 @@ const INITIAL_PRODUCTION_SCHEDULES: ProductionSchedule[] = [
   {
     id: 'sched-2',
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     workCenter: 'Sewing Line 1',
     startDate: '2026-11-04',
     endDate: '2026-11-14',
@@ -274,7 +274,7 @@ const INITIAL_PRODUCTION_SCHEDULES: ProductionSchedule[] = [
   {
     id: 'sched-3',
     moNumber: 'WH/MO/23170',
-    style: '[UNSIO1-2] UNSI HOODIE FLEECE 02',
+    style: 'UNSI HOODIE FLEECE 02',
     workCenter: 'Sewing Line 2',
     startDate: '2026-11-08',
     endDate: '2026-11-20',
@@ -286,7 +286,7 @@ const INITIAL_PRODUCTION_SCHEDULES: ProductionSchedule[] = [
   {
     id: 'sched-4',
     moNumber: 'WH/MO/23171',
-    style: '[UNSIO1-3] UNSI CHINO PANTS 03',
+    style: 'UNSI CHINO PANTS 03',
     workCenter: 'Sewing Line 1',
     startDate: '2026-11-10',
     endDate: '2026-11-22',
@@ -301,7 +301,7 @@ const INITIAL_DELIVERY_SCHEDULES: DeliverySchedule[] = [
   {
     id: 'del-23169-1',
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     deliveryDate: '2026-11-10',
     quantity: 400,
     notes: 'Delivery Termin 1: Air shipment to Tokyo DC',
@@ -311,7 +311,7 @@ const INITIAL_DELIVERY_SCHEDULES: DeliverySchedule[] = [
   {
     id: 'del-23169-2',
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     deliveryDate: '2026-11-15',
     quantity: 400,
     notes: 'Delivery Termin 2: Sea shipment batch A',
@@ -321,7 +321,7 @@ const INITIAL_DELIVERY_SCHEDULES: DeliverySchedule[] = [
   {
     id: 'del-23169-3',
     moNumber: 'WH/MO/23169',
-    style: '[DAR002-9] DAR JEANS 002',
+    style: 'UNSI JSU MHS 01',
     deliveryDate: '2026-11-18',
     quantity: 400,
     notes: 'Delivery Termin 3: Final delivery batch',

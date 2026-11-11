@@ -8,6 +8,7 @@ import {
   calculateKPIs,
   filterOrders,
   calculateDeliverySummary,
+  groupOrdersByMO,
 } from './ppicCalculations';
 import { ManufacturingOrder, DeliverySchedule, ProductionSchedule } from '../types/ppic';
 
@@ -197,4 +198,260 @@ test('calculateDeliverySummary handles multiple deliveries per MO correctly', ()
   assert.equal(summary.totalScheduledDeliveryQty, 450);
   assert.equal(summary.remainingQty, 50);
   assert.equal(summary.status, 'Partially Scheduled');
+});
+
+test('groupOrdersByMO groups orders by MO with merged Customer, Style and ordered stages', () => {
+  const multiStageOrders: ManufacturingOrder[] = [
+    {
+      id: 'stg-1',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Cutting Section A',
+      productionStage: 'Cutting',
+      targetQty: 1200,
+      actualQty: 1200,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-2',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Sewing Line 1',
+      productionStage: 'Sewing',
+      targetQty: 1200,
+      actualQty: 950,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-3',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Area Penerimaan Ironning',
+      productionStage: 'Penerimaan Ironning',
+      targetQty: 1200,
+      actualQty: 850,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-4',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Ironning Station 01',
+      productionStage: 'Ironning',
+      targetQty: 1200,
+      actualQty: 720,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-5',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QC Finishing Line',
+      productionStage: 'QC Finishing',
+      targetQty: 1200,
+      actualQty: 600,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-6',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QC Ukur Station',
+      productionStage: 'QC Ukur',
+      targetQty: 1200,
+      actualQty: 600,
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-7',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QA Audit Room',
+      productionStage: 'QA',
+      targetQty: 1200,
+      actualQty: 600,
+      qaStatus: 'Passed Final Audit 15-Nov',
+      batchId: 'b-1',
+    },
+    {
+      id: 'stg-8',
+      moNumber: 'WH/MO/23170',
+      style: 'UNSI HOODIE FLEECE 02',
+      buyer: 'PT GLOBAL GARMINDO UTAMA',
+      workCenter: 'Cutting Section B',
+      productionStage: 'Cutting',
+      targetQty: 2000,
+      actualQty: 2000,
+      batchId: 'b-1',
+    },
+  ];
+
+  const groups = groupOrdersByMO(multiStageOrders);
+  assert.equal(groups.length, 2, 'Should create 2 MO groups');
+
+  const mo23169 = groups.find((g) => g.moNumber === 'WH/MO/23169');
+  assert.ok(mo23169, 'WH/MO/23169 group should exist');
+  assert.equal(mo23169?.customer, 'YAYASAN ENAM PEDULI PENDIDIKAN');
+  assert.equal(mo23169?.style, 'UNSI JSU MHS 01');
+  assert.equal(mo23169?.stageCount, 7, 'WH/MO/23169 should have 7 stages');
+  assert.equal(mo23169?.stages[0].productionStage, 'Cutting');
+  assert.equal(mo23169?.stages[1].productionStage, 'Sewing');
+  assert.equal(mo23169?.stages[2].productionStage, 'Penerimaan Ironning');
+  assert.equal(mo23169?.stages[3].productionStage, 'Ironning');
+  assert.equal(mo23169?.stages[4].productionStage, 'QC Finishing');
+  assert.equal(mo23169?.stages[5].productionStage, 'QC Ukur');
+  assert.equal(mo23169?.stages[6].productionStage, 'QA');
+});
+
+test('filterOrders search keeps all 7 stages together when searching MO, Customer, Style, or Work Center', () => {
+  const multiStageOrders: ManufacturingOrder[] = [
+    {
+      id: 's1',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Cutting Section A',
+      productionStage: 'Cutting',
+      targetQty: 1200,
+      actualQty: 1200,
+      batchId: 'b-1',
+    },
+    {
+      id: 's2',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Sewing Line 1',
+      productionStage: 'Sewing',
+      targetQty: 1200,
+      actualQty: 950,
+      batchId: 'b-1',
+    },
+    {
+      id: 's3',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Area Penerimaan Ironning',
+      productionStage: 'Penerimaan Ironning',
+      targetQty: 1200,
+      actualQty: 850,
+      batchId: 'b-1',
+    },
+    {
+      id: 's4',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'Ironning Station 01',
+      productionStage: 'Ironning',
+      targetQty: 1200,
+      actualQty: 720,
+      batchId: 'b-1',
+    },
+    {
+      id: 's5',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QC Finishing Line',
+      productionStage: 'QC Finishing',
+      targetQty: 1200,
+      actualQty: 600,
+      batchId: 'b-1',
+    },
+    {
+      id: 's6',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QC Ukur Station',
+      productionStage: 'QC Ukur',
+      targetQty: 1200,
+      actualQty: 600,
+      batchId: 'b-1',
+    },
+    {
+      id: 's7',
+      moNumber: 'WH/MO/23169',
+      style: 'UNSI JSU MHS 01',
+      buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
+      workCenter: 'QA Audit Room',
+      productionStage: 'QA',
+      targetQty: 1200,
+      actualQty: 600,
+      qaStatus: 'Passed Final Audit 15-Nov',
+      batchId: 'b-1',
+    },
+    {
+      id: 's8',
+      moNumber: 'WH/MO/23170',
+      style: 'UNSI HOODIE FLEECE 02',
+      buyer: 'PT GLOBAL GARMINDO UTAMA',
+      workCenter: 'Cutting Section B',
+      productionStage: 'Cutting',
+      targetQty: 2000,
+      actualQty: 2000,
+      batchId: 'b-1',
+    },
+  ];
+
+  // 1. Search by MO Number
+  const resMO = filterOrders(multiStageOrders, {
+    search: 'WH/MO/23169',
+    workCenter: '',
+    style: '',
+    mo: '',
+    stage: '',
+    qaStatus: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  assert.equal(resMO.length, 7, 'Searching for WH/MO/23169 should return all 7 stages');
+
+  // 2. Search by Customer Name
+  const resCustomer = filterOrders(multiStageOrders, {
+    search: 'YAYASAN ENAM',
+    workCenter: '',
+    style: '',
+    mo: '',
+    stage: '',
+    qaStatus: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  assert.equal(resCustomer.length, 7, 'Searching for YAYASAN ENAM should return all 7 stages');
+
+  // 3. Search by Style
+  const resStyle = filterOrders(multiStageOrders, {
+    search: 'UNSI JSU MHS 01',
+    workCenter: '',
+    style: '',
+    mo: '',
+    stage: '',
+    qaStatus: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  assert.equal(resStyle.length, 7, 'Searching for UNSI JSU MHS 01 should return all 7 stages');
+
+  // 4. Search by Work Center in MO group
+  const resWC = filterOrders(multiStageOrders, {
+    search: 'QA Audit Room',
+    workCenter: '',
+    style: '',
+    mo: '',
+    stage: '',
+    qaStatus: '',
+    dateFrom: '',
+    dateTo: '',
+  });
+  assert.equal(resWC.length, 7, 'Searching for a workcenter in WH/MO/23169 should return all 7 stages intact');
 });
