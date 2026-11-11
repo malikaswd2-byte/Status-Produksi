@@ -150,20 +150,20 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* Charts Grid Row 1: Work Center Distribution & Top Style Fulfillment */}
+      {/* Section 1: Full-width Beban Kerja Tahapan Produksi (Pipeline & Bottleneck) */}
+      <div className="w-full">
+        <StageWorkloadChart stages={stagesData} />
+      </div>
+
+      {/* Section 2: Work Center Distribution & Top Style Fulfillment (Balanced 2-Column Grid) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <WorkCenterChart data={workCentersData} />
         <StyleVolumeChart styles={stylesData} />
       </div>
 
-      {/* Charts Grid Row 2: Stage Workload Pipeline & QA Status */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2">
-          <StageWorkloadChart stages={stagesData} />
-        </div>
-        <div>
-          <QAStatusDonut data={qaData} />
-        </div>
+      {/* Section 3: Dedicated QA Monitoring Section with Ample Width */}
+      <div className="w-full">
+        <QAStatusDonut data={qaData} />
       </div>
 
       {/* Active Manufacturing Orders Table Preview */}

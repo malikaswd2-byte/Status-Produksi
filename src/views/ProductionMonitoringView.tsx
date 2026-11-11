@@ -7,15 +7,11 @@ import {
 } from '../utils/ppicCalculations';
 import { FilterBar } from '../components/FilterBar';
 import { QAStatusDonut } from '../components/charts/QAStatusDonut';
+import { StageWorkloadChart } from '../components/charts/StageWorkloadChart';
 import {
   ChevronDown,
   ChevronRight,
   ArrowUpDown,
-  FileSpreadsheet,
-  Layers,
-  Factory,
-  CheckCircle2,
-  AlertCircle,
   Eye,
 } from 'lucide-react';
 import { StyleSummary } from '../types/ppic';
@@ -97,108 +93,22 @@ export const ProductionMonitoringView: React.FC = () => {
       {/* Filter Bar with Direct Search */}
       <FilterBar />
 
-      {/* Top Grid: QA Monitoring & Production Stage Pipeline */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* QA Monitoring (Section 5.A) */}
-        <div>
-          <QAStatusDonut data={qaData} title="QA Quality Assurance Status" />
-        </div>
+      {/* Section 1: Alur & Beban Kerja Tahapan Produksi (Full Width) */}
+      <div className="w-full">
+        <StageWorkloadChart
+          stages={stagesData}
+          title="Alur & Beban Kerja Tahapan Produksi (Pipeline & Bottleneck)"
+          subtitle="Pengelompokan volume target, output, dan work center terkait di setiap tahapan"
+        />
+      </div>
 
-        {/* Production Stage Pipeline & Bottlenecks (Section 5.B) */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-lg p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
-                Alur Tahapan Produksi (Production Stages)
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Pengelompokan volume target, output, dan work center terkait di setiap tahapan
-              </p>
-            </div>
-            <span className="text-xs font-mono text-slate-500">
-              {stagesData.length} Tahapan Aktif
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {stagesData.map((stage) => {
-              const backlog = Math.max(0, stage.targetQty - stage.actualQty);
-              const hasSewingIssues =
-                stage.stageName === 'Sewing' &&
-                ((stage.repairCount && stage.repairCount > 0) ||
-                  (stage.reworkCount && stage.reworkCount > 0) ||
-                  (stage.repairQty && stage.repairQty > 0) ||
-                  (stage.reworkQty && stage.reworkQty > 0));
-
-              return (
-                <div
-                  key={stage.stageName}
-                  className={`p-3.5 rounded-lg border transition-colors ${
-                    stage.isBottleneck
-                      ? 'border-amber-300 bg-amber-50/50'
-                      : 'border-slate-200 bg-slate-50/40'
-                  }`}
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">{stage.stageName}</span>
-                      {stage.isBottleneck && (
-                        <span className="text-[10px] font-semibold text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3 text-amber-700" />
-                          Volume Terberat (Bottleneck)
-                        </span>
-                      )}
-                      {hasSewingIssues && (
-                        <div className="flex items-center gap-1.5 ml-2">
-                          {(stage.repairCount || 0) > 0 && (
-                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded">
-                              Repair: {stage.repairCount} MO {stage.repairQty ? `(${stage.repairQty} pcs)` : ''}
-                            </span>
-                          )}
-                          {(stage.reworkCount || 0) > 0 && (
-                            <span className="text-[10px] font-semibold text-rose-800 bg-rose-100 border border-rose-300 px-1.5 py-0.5 rounded">
-                              Rework: {stage.reworkCount} MO {stage.reworkQty ? `(${stage.reworkQty} pcs)` : ''}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-slate-600">
-                      <span>Target: <strong className="text-slate-900">{stage.targetQty.toLocaleString()}</strong> pcs</span>
-                      <span>Output: <strong className="text-emerald-700">{stage.actualQty.toLocaleString()}</strong> pcs</span>
-                      <span>Backlog: <strong className="text-amber-700">{backlog.toLocaleString()}</strong> pcs</span>
-                    </div>
-                  </div>
-
-                  {/* Progress bar */}
-                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden mb-2">
-                    <div
-                      className={`h-full rounded-full transition-all duration-300 ${
-                        stage.completionRate >= 100
-                          ? 'bg-emerald-600'
-                          : stage.isBottleneck
-                          ? 'bg-amber-500'
-                          : 'bg-blue-600'
-                      }`}
-                      style={{ width: `${stage.completionRate}%` }}
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-500">
-                    <div className="flex items-center gap-1">
-                      <Factory className="w-3 h-3 text-slate-400" />
-                      <span>Work Centers: {stage.workCenters.join(', ') || 'Unassigned'}</span>
-                    </div>
-                    <div className="font-mono">
-                      <span>{stage.moCount} MO · {stage.styleCount} Style · <strong>{stage.completionRate}%</strong> selesai</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+      {/* Section 2: Dedicated QA Quality Assurance Status (Full Width) */}
+      <div className="w-full">
+        <QAStatusDonut
+          data={qaData}
+          title="Distribusi Status QA (Quality Assurance)"
+          subtitle="Rekapitulasi proporsi hasil audit dan status inspeksi kualitas berdasarkan data aktual"
+        />
       </div>
 
       {/* Style Monitoring Table (Section 5.C) */}
