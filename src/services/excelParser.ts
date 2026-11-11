@@ -14,13 +14,15 @@ export const BUILTIN_STANDARD_TEMPLATE_PROFILE: TemplateProfile = {
   id: 'tpl-ppic-work-orders-standard',
   name: 'PPIC Standard Work Orders Template',
   description:
-    'Template resmi manufaktur PPIC (Customer, Routing, Work Orders/Style, Work Center, Original Qty, Qty, Qty Sisa, Qty Repair)',
+    'Template resmi manufaktur PPIC (Display Name MO, Customer, Routing, Work Orders/Style, Work Center, Original Qty, Qty, Qty Sisa, Qty Repair)',
   isDefault: true,
   headerSignatures: [
+    'Display Name',
     'Work Orders/Style/Display Name',
     'Work Orders/Work Center/Display Name',
   ],
   mapping: {
+    moNumber: 'Display Name',
     buyer: 'Customer/Display Name',
     routing: 'Routing/Display Name',
     style: 'Work Orders/Style/Display Name',
@@ -404,6 +406,22 @@ export function recognizeTemplate(
   const headerWC = findMatchingHeader(headers, /work[_\s.-]?orders?[_\s/.-]?work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i) ||
     findMatchingHeader(headers, /work[_\s.-]?center[_\s/.-]?display[_\s.-]?name/i);
 
+  // Requirement 1 & 2: Detect MO Display Name column specifically.
+  // Must match pure "Display Name" or "Manufacturing Order/Display Name" or "MO/Display Name",
+  // and must NEVER match "Customer/Display Name", "Routing/Display Name", or "Work Orders/Style/..."
+  const headerMODisplayName =
+    headers.find((h) => /^display[_\s.-]?name$/i.test(h.trim())) ||
+    headers.find((h) =>
+      /^(manufacturing[_\s.-]?orders?|mfg[_\s.-]?orders?|mo|production[_\s.-]?orders?)[_\s/.-]?display[_\s.-]?name$/i.test(
+        h.trim()
+      )
+    ) ||
+    headers.find((h) =>
+      /^(nomor[_\s.-]?mo|no[_\s.-]?mo|mo[_\s.-]?number|no\.?[_\s.-]?mo|manufacturing[_\s.-]?order)$/i.test(
+        h.trim()
+      )
+    );
+
   if (headerStyle && headerWC) {
     const headerCustomer =
       findMatchingHeader(headers, /customer[_\s/.-]?display[_\s.-]?name/i) ||
@@ -439,8 +457,9 @@ export function recognizeTemplate(
       quantity: headerQty,
       remainingQty: headerQtySisa,
       repairQty: headerQtyRepair,
-      // Default aliases for compatibility
-      moNumber: headerStyle,
+      // Map MO specifically to Display Name column (Requirement 1 & 2)
+      // If Display Name is not present, moNumber remains undefined so warning is triggered
+      moNumber: headerMODisplayName,
       productionStage: headerWC,
       targetQty: headerOrigQty || headerQty,
     };
@@ -490,10 +509,10 @@ export function detectColumnMappings(
 
   const patterns: Record<keyof ColumnMappingConfig, RegExp[]> = {
     moNumber: [
-      /^(mo|no[_\s.-]?mo|nomor[_\s.-]?mo|order[_\s.-]?no|spk|no[_\s.-]?spk|work[_\s.-]?order|mfg[_\s.-]?order|wo[_\s.-]?no)$/i,
-      /work[_\s.-]?orders?[_\s/.-]?style/i,
-      /mo/i,
-      /spk/i,
+      /^display[_\s.-]?name$/i,
+      /^(manufacturing[_\s.-]?orders?|mfg[_\s.-]?orders?|mo|production[_\s.-]?orders?)[_\s/.-]?display[_\s.-]?name$/i,
+      /^(nomor[_\s.-]?mo|no[_\s.-]?mo|mo[_\s.-]?number|no\.?[_\s.-]?mo|manufacturing[_\s.-]?order)$/i,
+      /^(order[_\s.-]?no|wo[_\s.-]?no|production[_\s.-]?no)$/i,
     ],
     style: [
       /work[_\s.-]?orders?[_\s/.-]?style[_\s/.-]?display[_\s.-]?name/i,
@@ -671,6 +690,13 @@ export function parseExcelWorkbook(
     );
   }
 
+  // Requirement 2: If Display Name column is not found, provide a clear warning
+  if (!detectedMapping.moNumber) {
+    warnings.push(
+      'Peringatan: Kolom "Display Name" untuk identitas Manufacturing Order (MO) tidak ditemukan pada file Excel. Periksa pemetaan kolom agar identitas MO tidak keliru.'
+    );
+  }
+
   const batchId = `BATCH-${Date.now()}`;
   const seenMOs = new Set<string>();
   const uniqueStyles = new Set<string>();
@@ -682,11 +708,11 @@ export function parseExcelWorkbook(
   const normalizedOrders: ManufacturingOrder[] = [];
 
   rawJson.forEach((row, idx) => {
-    // 1. Style & MO Extraction
+    // 1. MO & Style Extraction (Requirement 1 & 2)
+    // Primary MO identity MUST come directly from Excel Display Name column (e.g. WH/MO/23169).
+    // Never extract MO from Style brackets (e.g. DAR002-9).
+    const moRawCol = detectedMapping.moNumber ? row[detectedMapping.moNumber] : undefined;
     const styleRawCol = detectedMapping.style ? row[detectedMapping.style] : undefined;
-    const moExplicitCol = detectedMapping.moNumber && detectedMapping.moNumber !== detectedMapping.style
-      ? row[detectedMapping.moNumber]
-      : undefined;
 
     // Check if row is completely empty across all mapped columns
     const hasAnyMappedData = Object.values(detectedMapping).some((col) => {
@@ -699,27 +725,27 @@ export function parseExcelWorkbook(
       return;
     }
 
-    const styleMO = extractStyleAndMO(styleRawCol);
+    const moString = moRawCol !== undefined && moRawCol !== null ? String(moRawCol).trim() : '';
+    const styleString = styleRawCol !== undefined && styleRawCol !== null ? String(styleRawCol).trim() : '';
 
-    let moNumber = styleMO.moNumber;
-    let style = styleMO.style;
-
-    // If explicit MO column is present and valid, prefer it
-    if (moExplicitCol && String(moExplicitCol).trim()) {
-      moNumber = String(moExplicitCol).trim();
-    }
+    // Style is stored cleanly from the Style column (e.g. "[DAR002-9] DAR JEANS 002")
+    const style = styleString || 'Unknown Style';
 
     // Row-level verification issues tracking
     const verificationIssues: string[] = [];
     let needsVerification = false;
 
+    // MO Identity: Use pristine Display Name value directly from Excel without changing format
+    let moNumber = moString;
     if (!moNumber) {
       needsVerification = true;
       verificationIssues.push(
-        styleMO.issue || 'Nomor MO belum dapat diidentifikasi otomatis dari teks Style'
+        detectedMapping.moNumber
+          ? 'Nilai kolom "Display Name" untuk identitas MO kosong pada baris ini'
+          : 'Kolom "Display Name" untuk identitas MO tidak ditemukan dalam file Excel'
       );
-      // Group rows that have identical style string so they form one unified entity
-      moNumber = `MO-${styleMO.raw || `ROW-${idx + 1}`}`;
+      // Clearly mark unassigned MO without creating synthetic fake numbers
+      moNumber = '(MO Belum Ditetapkan)';
     }
 
     // 2. Stage & Work Center Extraction
@@ -838,7 +864,7 @@ export function parseExcelWorkbook(
       routing,
       buyer,
       line: stageWC.line,
-      rawStyle: styleMO.raw,
+      rawStyle: styleString,
       rawWorkCenter: stageWC.raw,
       qaStatus,
       sewingCondition,
@@ -881,21 +907,23 @@ export function parseExcelWorkbook(
  * Generates an Excel (.xlsx) file conforming exactly to the user's operational PPIC template structure:
  * Column C: Customer/Display Name
  * Column D: Routing/Display Name
- * Column E: Work Orders/Style/Display Name (format: [UNSIO1-1] UNSI JSU MHS 01)
+ * Column E: Work Orders/Style/Display Name (format: [DAR002-9] DAR JEANS 002)
  * Column F: Work Orders/Work Center/Display Name (e.g., Sewing Line 1, Sewing Line 2, etc.)
  * Column G: Work Orders/Original Production Q
  * Column H: Work Orders/Quantity
  * Column I: Work Orders/Qty Sisa
  * Column J: Work Orders/Qty Repair
+ * Column Display Name: WH/MO/23169 (primary MO identification)
  */
 export function generateSampleExcelWorkbook(): Uint8Array {
   const sampleData = [
     {
       'No': 1,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Cutting Section A',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -905,9 +933,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 2,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Sewing Line 1',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -917,9 +946,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 3,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Area Penerimaan Ironning',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -929,9 +959,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 4,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Ironning Station 01',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -941,9 +972,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 5,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QC Finishing Line',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -953,9 +985,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 6,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QC Ukur Station',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -965,9 +998,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 7,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23169',
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
-      'Work Orders/Style/Display Name': '[UNSIO1-1] UNSI JSU MHS 01',
+      'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QA Audit Room',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
@@ -977,6 +1011,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 8,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23170',
       'Customer/Display Name': 'H&M Basic Apparel',
       'Routing/Display Name': 'RT-HOODIE-CW-02',
       'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
@@ -989,6 +1024,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 9,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23170',
       'Customer/Display Name': 'H&M Basic Apparel',
       'Routing/Display Name': 'RT-HOODIE-CW-02',
       'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
@@ -1001,6 +1037,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 10,
       'Plant': 'PLANT-01',
+      'Display Name': 'WH/MO/23171',
       'Customer/Display Name': 'Marks & Spencer',
       'Routing/Display Name': 'RT-CHINO-SLIM-03',
       'Work Orders/Style/Display Name': '[UNSIO1-3] UNSI CHINO PANTS 03',
