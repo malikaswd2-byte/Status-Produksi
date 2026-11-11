@@ -613,16 +613,16 @@ export const UploadView: React.FC = () => {
                 {/* Grid of Mapping Selects */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                   {[
+                    { key: 'moNumber' as const, label: 'Nomor MO / Display Name *', required: true },
+                    { key: 'style' as const, label: 'Style / Model (Kolom E) *', required: true },
                     { key: 'buyer' as const, label: 'Customer / Buyer (Kolom C)', required: false },
                     { key: 'routing' as const, label: 'Routing / Alur (Kolom D)', required: false },
-                    { key: 'style' as const, label: 'Style & MO Identity (Kolom E) *', required: true },
                     { key: 'workCenter' as const, label: 'Work Center & Line (Kolom F) *', required: true },
+                    { key: 'productionStage' as const, label: 'Tahap Produksi (7 Standar)', required: false },
                     { key: 'originalQty' as const, label: 'Original Production Qty (Kolom G)', required: false },
                     { key: 'quantity' as const, label: 'Quantity (Kolom H)', required: false },
                     { key: 'remainingQty' as const, label: 'Remaining Qty / Qty Sisa (Kolom I)', required: false },
                     { key: 'repairQty' as const, label: 'Repair Qty (Kolom J - Sewing)', required: false },
-                    { key: 'productionStage' as const, label: 'Tahap Produksi (Khusus jika terpisah)', required: false },
-                    { key: 'moNumber' as const, label: 'Nomor MO (Khusus jika terpisah)', required: false },
                     { key: 'qaStatus' as const, label: 'Status QA (Aktual Excel saja)', required: false },
                     { key: 'deliveryDate' as const, label: 'Tanggal Pengiriman', required: false },
                   ].map(({ key, label, required }) => (

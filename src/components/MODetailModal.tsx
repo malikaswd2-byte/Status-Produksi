@@ -21,6 +21,7 @@ export const MODetailModal: React.FC = () => {
   const {
     selectedMO,
     setSelectedMO,
+    orders,
     batches,
     productionSchedules,
     deliverySchedules,
@@ -31,6 +32,9 @@ export const MODetailModal: React.FC = () => {
   const [editingDelivery, setEditingDelivery] = useState<DeliverySchedule | null>(null);
 
   if (!selectedMO) return null;
+
+  // All production stages belonging to this MO Display Name
+  const moStages = orders.filter((o) => o.moNumber === selectedMO.moNumber);
 
   // Find provenance batch
   const originBatch = batches.find((b) => b.id === selectedMO.batchId);
@@ -239,6 +243,99 @@ export const MODetailModal: React.FC = () => {
                     </span>
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* Production Stages Table for this MO */}
+            <div className="p-4 rounded-lg border border-slate-200 space-y-3 bg-white">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-blue-600" />
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                      Tahapan Produksi MO Ini ({moStages.length} Tahap)
+                    </h4>
+                    <p className="text-[11px] text-slate-500">
+                      Seluruh tahapan terhubung dengan Display Name MO <span className="font-mono font-semibold text-blue-600">{selectedMO.moNumber}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-md">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[11px]">
+                    <tr>
+                      <th className="py-2 px-3 font-semibold">Tahap Produksi</th>
+                      <th className="py-2 px-3 font-semibold">Work Center / Line</th>
+                      <th className="py-2 px-3 font-semibold text-right">Target</th>
+                      <th className="py-2 px-3 font-semibold text-right">Output</th>
+                      <th className="py-2 px-3 font-semibold text-right">Sisa</th>
+                      <th className="py-2 px-3 font-semibold text-center">Status / Kondisi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {moStages.map((stg) => {
+                      const isSelected = stg.id === selectedMO.id;
+                      const sisa = Math.max(0, stg.targetQty - stg.actualQty);
+                      return (
+                        <tr
+                          key={stg.id}
+                          onClick={() => setSelectedMO(stg)}
+                          className={`cursor-pointer transition-colors ${
+                            isSelected ? 'bg-blue-50/80 font-medium' : 'hover:bg-slate-50/70'
+                          }`}
+                        >
+                          <td className="py-2 px-3">
+                            <span className={`font-semibold ${isSelected ? 'text-blue-700' : 'text-slate-800'}`}>
+                              {stg.productionStage}
+                            </span>
+                            {isSelected && (
+                              <span className="ml-1.5 text-[10px] px-1.5 py-0.2 bg-blue-600 text-white rounded font-mono">
+                                Aktif
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-slate-700">
+                            <span>{stg.workCenter}</span>
+                            {stg.line && stg.line !== stg.workCenter && (
+                              <span className="ml-1 text-[10px] text-slate-400 font-mono">({stg.line})</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-right text-slate-700">
+                            {stg.targetQty.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-right text-emerald-700 font-semibold">
+                            {stg.actualQty.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-right text-slate-500">
+                            {sisa.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            {stg.productionStage === 'Sewing' && stg.sewingCondition && stg.sewingCondition !== 'Normal' ? (
+                              <span
+                                className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                  stg.sewingCondition === 'Rework'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {stg.sewingCondition}
+                                {stg.repairQty ? ` (${stg.repairQty} pcs)` : ''}
+                              </span>
+                            ) : stg.qaStatus ? (
+                              <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                {stg.qaStatus}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 font-medium">Normal</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
 

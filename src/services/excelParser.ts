@@ -707,12 +707,22 @@ export function parseExcelWorkbook(
   let needsVerificationCount = 0;
   const normalizedOrders: ManufacturingOrder[] = [];
 
+  // Forward Fill / Parent Data Inheritance state tracking (1 WH/MO Display Name = 1 Style)
+  let activeParentGroup = {
+    moNumber: '',
+    style: '',
+    buyer: undefined as string | undefined,
+    routing: undefined as string | undefined,
+  };
+
   rawJson.forEach((row, idx) => {
-    // 1. MO & Style Extraction (Requirement 1 & 2)
-    // Primary MO identity MUST come directly from Excel Display Name column (e.g. WH/MO/23169).
-    // Never extract MO from Style brackets (e.g. DAR002-9).
+    // 1. MO, Style, Customer & Routing Extraction with Forward Fill Inheritance
+    // In actual ERP/Odoo templates, Display Name is only populated on the first row of a Style group.
+    // Subsequent stage rows inherit Display Name, Customer, and Routing from the parent group.
     const moRawCol = detectedMapping.moNumber ? row[detectedMapping.moNumber] : undefined;
     const styleRawCol = detectedMapping.style ? row[detectedMapping.style] : undefined;
+    const buyerRawCol = detectedMapping.buyer ? row[detectedMapping.buyer] : undefined;
+    const routingRawCol = detectedMapping.routing ? row[detectedMapping.routing] : undefined;
 
     // Check if row is completely empty across all mapped columns
     const hasAnyMappedData = Object.values(detectedMapping).some((col) => {
@@ -727,24 +737,81 @@ export function parseExcelWorkbook(
 
     const moString = moRawCol !== undefined && moRawCol !== null ? String(moRawCol).trim() : '';
     const styleString = styleRawCol !== undefined && styleRawCol !== null ? String(styleRawCol).trim() : '';
+    const buyerString = buyerRawCol !== undefined && buyerRawCol !== null ? String(buyerRawCol).trim() : '';
+    const routingString = routingRawCol !== undefined && routingRawCol !== null ? String(routingRawCol).trim() : '';
 
-    // Style is stored cleanly from the Style column (e.g. "[DAR002-9] DAR JEANS 002")
-    const style = styleString || 'Unknown Style';
+    let moNumber = '';
+    let style = '';
+    let buyer: string | undefined = undefined;
+    let routing: string | undefined = undefined;
 
     // Row-level verification issues tracking
     const verificationIssues: string[] = [];
     let needsVerification = false;
 
-    // MO Identity: Use pristine Display Name value directly from Excel without changing format
-    let moNumber = moString;
-    if (!moNumber) {
+    // Case 1: Explicit Display Name is present on this row -> Starts / defines a new MO group
+    if (moString) {
+      moNumber = moString;
+      style = styleString || activeParentGroup.style || 'Unknown Style';
+      buyer = buyerString || undefined;
+      routing = routingString || undefined;
+
+      // Update active parent group
+      activeParentGroup = {
+        moNumber,
+        style: styleString || activeParentGroup.style,
+        buyer,
+        routing,
+      };
+    } 
+    // Case 2: Display Name is empty on this row -> Inherit from current active parent group
+    else if (activeParentGroup.moNumber) {
+      // Check if style belongs to the same group (style is either identical or omitted on subrows)
+      const isSameStyle = !styleString || styleString === activeParentGroup.style;
+
+      if (isSameStyle) {
+        // Inherit Display Name, Style, Buyer, Routing from active parent group
+        moNumber = activeParentGroup.moNumber;
+        style = styleString || activeParentGroup.style || 'Unknown Style';
+        buyer = buyerString || activeParentGroup.buyer;
+        routing = routingString || activeParentGroup.routing;
+
+        // If buyer/routing were newly provided on this continuation row, update group
+        if (buyerString && !activeParentGroup.buyer) activeParentGroup.buyer = buyerString;
+        if (routingString && !activeParentGroup.routing) activeParentGroup.routing = routingString;
+        if (styleString && !activeParentGroup.style) activeParentGroup.style = styleString;
+      } else {
+        // Style changed to a different style, but without a new Display Name!
+        // Do NOT inherit across different Styles!
+        style = styleString;
+        buyer = buyerString || undefined;
+        routing = routingString || undefined;
+        needsVerification = true;
+        verificationIssues.push(
+          'Baris Style baru tidak memiliki nomor Display Name MO yang valid'
+        );
+        moNumber = '(MO Belum Ditetapkan)';
+
+        // Reset parent group
+        activeParentGroup = {
+          moNumber: '',
+          style: styleString,
+          buyer,
+          routing,
+        };
+      }
+    } 
+    // Case 3: Display Name is empty and no active parent group exists
+    else {
+      style = styleString || 'Unknown Style';
+      buyer = buyerString || undefined;
+      routing = routingString || undefined;
       needsVerification = true;
       verificationIssues.push(
         detectedMapping.moNumber
           ? 'Nilai kolom "Display Name" untuk identitas MO kosong pada baris ini'
           : 'Kolom "Display Name" untuk identitas MO tidak ditemukan dalam file Excel'
       );
-      // Clearly mark unassigned MO without creating synthetic fake numbers
       moNumber = '(MO Belum Ditetapkan)';
     }
 
@@ -828,9 +895,7 @@ export function parseExcelWorkbook(
       }
     }
 
-    // Customer & Routing
-    const buyer = detectedMapping.buyer ? String(row[detectedMapping.buyer] || '').trim() || undefined : undefined;
-    const routing = detectedMapping.routing ? String(row[detectedMapping.routing] || '').trim() || undefined : undefined;
+    // Notes and Dates (buyer and routing already computed and inherited above)
     const notes = detectedMapping.notes ? String(row[detectedMapping.notes] || '').trim() || undefined : undefined;
 
     const startDate = detectedMapping.startDate ? normalizeExcelDate(row[detectedMapping.startDate]) : undefined;
@@ -933,9 +998,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 2,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited from parent group (WH/MO/23169)
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Sewing Line 1',
       'Work Orders/Original Production Q': 1200,
@@ -946,9 +1011,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 3,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Area Penerimaan Ironning',
       'Work Orders/Original Production Q': 1200,
@@ -959,9 +1024,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 4,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'Ironning Station 01',
       'Work Orders/Original Production Q': 1200,
@@ -972,9 +1037,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 5,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QC Finishing Line',
       'Work Orders/Original Production Q': 1200,
@@ -985,9 +1050,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 6,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QC Ukur Station',
       'Work Orders/Original Production Q': 1200,
@@ -998,9 +1063,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 7,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23169',
-      'Customer/Display Name': 'Uniqlo Global Retail',
-      'Routing/Display Name': 'RT-POLO-MENS-V1',
+      'Display Name': '', // Empty: inherited
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
       'Work Orders/Work Center/Display Name': 'QA Audit Room',
       'Work Orders/Original Production Q': 1200,
@@ -1024,9 +1089,9 @@ export function generateSampleExcelWorkbook(): Uint8Array {
     {
       'No': 9,
       'Plant': 'PLANT-01',
-      'Display Name': 'WH/MO/23170',
-      'Customer/Display Name': 'H&M Basic Apparel',
-      'Routing/Display Name': 'RT-HOODIE-CW-02',
+      'Display Name': '', // Empty: inherited from WH/MO/23170
+      'Customer/Display Name': '', // Empty: inherited
+      'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
       'Work Orders/Work Center/Display Name': 'Sewing Line 2',
       'Work Orders/Original Production Q': 2000,

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as XLSX from 'xlsx';
 import {
   normalizeProductionStage,
   extractStyleAndMO,
@@ -98,6 +99,7 @@ test('recognizeTemplate identifies PPIC Standard Production Template headers aut
   const headers = [
     'No',
     'Plant',
+    'Display Name',
     'Customer/Display Name',
     'Routing/Display Name',
     'Work Orders/Style/Display Name',
@@ -111,6 +113,7 @@ test('recognizeTemplate identifies PPIC Standard Production Template headers aut
   const recognized = recognizeTemplate(headers);
   assert.equal(recognized.isRecognized, true);
   assert.equal(recognized.templateName, 'PPIC Standard Work Orders Template');
+  assert.equal(recognized.mapping.moNumber, 'Display Name');
   assert.equal(recognized.mapping.buyer, 'Customer/Display Name');
   assert.equal(recognized.mapping.routing, 'Routing/Display Name');
   assert.equal(recognized.mapping.style, 'Work Orders/Style/Display Name');
@@ -121,7 +124,7 @@ test('recognizeTemplate identifies PPIC Standard Production Template headers aut
   assert.equal(recognized.mapping.repairQty, 'Work Orders/Qty Repair');
 });
 
-test('generateSampleExcelWorkbook and parseExcelWorkbook produce auto-recognized template without manual mapping', () => {
+test('generateSampleExcelWorkbook and parseExcelWorkbook verify Forward Fill Display Name inheritance across all 7 stages', () => {
   const fileBytes = generateSampleExcelWorkbook();
   assert.ok(fileBytes.length > 0);
 
@@ -131,29 +134,43 @@ test('generateSampleExcelWorkbook and parseExcelWorkbook produce auto-recognized
   assert.equal(parsed.isTemplateRecognized, true);
   assert.equal(parsed.matchedTemplateName, 'PPIC Standard Work Orders Template');
   assert.equal(parsed.normalizedOrders.length, 10);
+  assert.equal(parsed.summary.needsVerificationCount, 0);
 
-  // Multi-stage rows of MO [UNSIO1-1] must all link to UNSIO1-1 and Style "UNSI JSU MHS 01"
-  const unsioOrders = parsed.normalizedOrders.filter((o) => o.moNumber === 'UNSIO1-1');
-  assert.equal(unsioOrders.length, 7);
-  for (const o of unsioOrders) {
-    assert.equal(o.style, 'UNSI JSU MHS 01');
+  // Requirement: Multi-stage rows 1-7 where Display Name is only on row 1
+  // All 7 stages must inherit WH/MO/23169, Style, Buyer, and Routing!
+  const mo23169Orders = parsed.normalizedOrders.filter((o) => o.moNumber === 'WH/MO/23169');
+  assert.equal(mo23169Orders.length, 7, 'All 7 stages must inherit WH/MO/23169');
+
+  // Verify none have '(MO Belum Ditetapkan)'
+  assert.ok(!parsed.normalizedOrders.some((o) => o.moNumber === '(MO Belum Ditetapkan)'));
+
+  for (const o of mo23169Orders) {
+    assert.equal(o.moNumber, 'WH/MO/23169');
+    assert.equal(o.style, '[DAR002-9] DAR JEANS 002');
     assert.equal(o.buyer, 'Uniqlo Global Retail');
     assert.equal(o.routing, 'RT-POLO-MENS-V1');
+    assert.equal(o.needsVerification, false);
   }
 
-  // Check unique MO count: UNSIO1-1 (7 rows) + UNSIO1-2 (2 rows) + UNSIO1-3 (1 row) = 3 MOs
+  // Check all 7 distinct stages are present for WH/MO/23169
+  const stagesFoundForMO = mo23169Orders.map((o) => o.productionStage);
+  assert.deepEqual(stagesFoundForMO, [
+    'Cutting',
+    'Sewing',
+    'Penerimaan Ironning',
+    'Ironning',
+    'QC Finishing',
+    'QC Ukur',
+    'QA',
+  ]);
+
+  // Check unique MO count: WH/MO/23169 (7 rows) + WH/MO/23170 (2 rows) + WH/MO/23171 (1 row) = 3 MOs
   assert.equal(parsed.summary.moCount, 3);
   assert.equal(parsed.summary.styleCount, 3);
 
-  // Check all 7 stages are present across the 10 rows
-  const stagesFound = new Set(parsed.normalizedOrders.map((o) => o.productionStage));
-  for (const std of STANDARD_PRODUCTION_STAGES) {
-    assert.ok(stagesFound.has(std), `Standard stage "${std}" should be present in sample data`);
-  }
-
-  // Check Sewing repair on Line 1 (UNSIO1-1: 15 pcs repair)
+  // Check Sewing repair on Line 1 (WH/MO/23169: 15 pcs repair)
   const sewingRow1 = parsed.normalizedOrders.find(
-    (o) => o.moNumber === 'UNSIO1-1' && o.productionStage === 'Sewing'
+    (o) => o.moNumber === 'WH/MO/23169' && o.productionStage === 'Sewing'
   );
   assert.ok(sewingRow1);
   assert.equal(sewingRow1.workCenter, 'Sewing Line 1');
@@ -166,8 +183,40 @@ test('generateSampleExcelWorkbook and parseExcelWorkbook produce auto-recognized
 
   // Ensure QA does NOT have repair or rework status
   const qaRow = parsed.normalizedOrders.find(
-    (o) => o.moNumber === 'UNSIO1-1' && o.productionStage === 'QA'
+    (o) => o.moNumber === 'WH/MO/23169' && o.productionStage === 'QA'
   );
   assert.ok(qaRow);
   assert.equal(qaRow.qaStatus, undefined, 'QA status should not be synthetic');
+});
+
+test('Forward Fill does NOT cross into a different Style without a new Display Name', () => {
+  // Test case where style changes without an MO
+  const rawRows = [
+    {
+      'Display Name': 'WH/MO/99001',
+      'Work Orders/Style/Display Name': 'Style Alpha',
+      'Work Orders/Work Center/Display Name': 'Cutting',
+    },
+    {
+      'Display Name': '',
+      'Work Orders/Style/Display Name': 'Style Alpha',
+      'Work Orders/Work Center/Display Name': 'Sewing',
+    },
+    {
+      'Display Name': '',
+      'Work Orders/Style/Display Name': 'Style Beta Different', // Different style without Display Name
+      'Work Orders/Work Center/Display Name': 'Cutting',
+    },
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(rawRows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const result = parseExcelWorkbook(buf, 'test_boundary.xlsx');
+
+  assert.equal(result.normalizedOrders[0].moNumber, 'WH/MO/99001');
+  assert.equal(result.normalizedOrders[1].moNumber, 'WH/MO/99001'); // Inherited
+  assert.equal(result.normalizedOrders[2].moNumber, '(MO Belum Ditetapkan)'); // Boundary preserved!
+  assert.equal(result.normalizedOrders[2].needsVerification, true);
 });
