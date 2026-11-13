@@ -220,3 +220,51 @@ test('Forward Fill does NOT cross into a different Style without a new Display N
   assert.equal(result.normalizedOrders[2].moNumber, '(MO Belum Ditetapkan)'); // Boundary preserved!
   assert.equal(result.normalizedOrders[2].needsVerification, true);
 });
+
+test('Acceptance Criteria: QA Quantity == Original Production Quantity gives 100%, empty Work Center becomes "-", no fake dates or QA status', () => {
+  const rows = [
+    {
+      'Display Name': 'WH/MO/24001',
+      'Customer/Display Name': 'PT GARMENT NUSANTARA',
+      'Routing/Display Name': 'RT-STD-7',
+      'Work Orders/Style/Display Name': 'SHIRT CLASSIC 01',
+      'Tahap Produksi': 'Cutting',
+      'Work Orders/Work Center/Display Name': '',
+      'Work Orders/Original Production Q': 1702,
+      'Work Orders/Quantity': 1702,
+      'Work Orders/Qty Sisa': 0,
+      'Work Orders/Qty Repair': 0,
+    },
+    {
+      'Display Name': '',
+      'Customer/Display Name': '',
+      'Routing/Display Name': '',
+      'Work Orders/Style/Display Name': 'SHIRT CLASSIC 01',
+      'Tahap Produksi': 'QA',
+      'Work Orders/Work Center/Display Name': '',
+      'Work Orders/Original Production Q': 1702,
+      'Work Orders/Quantity': 1702,
+      'Work Orders/Qty Sisa': 0,
+      'Work Orders/Qty Repair': 0,
+    },
+  ];
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const parsed = parseExcelWorkbook(buf, 'qa_acceptance.xlsx');
+
+  assert.equal(parsed.normalizedOrders.length, 2);
+  const qaOrder = parsed.normalizedOrders.find((o) => o.productionStage === 'QA');
+  assert.ok(qaOrder);
+  assert.equal(qaOrder.moNumber, 'WH/MO/24001');
+  assert.equal(qaOrder.targetQty, 1702);
+  assert.equal(qaOrder.actualQty, 1702);
+  assert.equal(qaOrder.workCenter, '-', 'Empty QA Work Center must be "-"');
+  assert.equal(qaOrder.qaStatus, undefined, 'Must NOT fabricate Passed Final Audit or any QA status');
+  assert.equal(qaOrder.startDate, undefined, 'Must NOT auto-generate startDate');
+  assert.equal(qaOrder.endDate, undefined, 'Must NOT auto-generate endDate');
+  assert.equal(qaOrder.deliveryDate, undefined, 'Must NOT auto-generate deliveryDate');
+});
+

@@ -206,3 +206,41 @@ test('Condition 7: WH/MO same, Style different -> detects identity conflict and 
   const preservedMO = result.resultingOrders.find((o) => o.moNumber === 'WH/MO/001');
   assert.equal(preservedMO?.style, 'WRP3 STAF 04', 'Original style must be preserved');
 });
+
+test('Rule A update clears stale qaStatus and updates Work Center to "-" when absent in new Excel', () => {
+  const existing: ManufacturingOrder[] = [
+    {
+      id: 'old-qa',
+      moNumber: 'WH/MO/010',
+      style: 'POLO X',
+      buyer: 'BUYER A',
+      workCenter: 'Old WC',
+      productionStage: 'QA',
+      targetQty: 1702,
+      actualQty: 500,
+      qaStatus: 'Old Stale Status',
+      batchId: 'old-batch',
+    },
+  ];
+
+  const incoming: ManufacturingOrder[] = [
+    {
+      id: 'new-qa',
+      moNumber: 'WH/MO/010',
+      style: 'POLO X',
+      buyer: 'BUYER A',
+      workCenter: '-',
+      productionStage: 'QA',
+      targetQty: 1702,
+      actualQty: 1702,
+      qaStatus: undefined,
+      batchId: 'new-batch',
+    },
+  ];
+
+  const res = analyzeAndExecuteUpsert(existing, incoming, 'new-batch');
+  assert.equal(res.updatedMOCount, 1);
+  assert.equal(res.resultingOrders[0].actualQty, 1702);
+  assert.equal(res.resultingOrders[0].workCenter, '-');
+  assert.equal(res.resultingOrders[0].qaStatus, undefined);
+});

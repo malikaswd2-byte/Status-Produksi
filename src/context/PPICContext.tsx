@@ -209,7 +209,7 @@ export const PPICProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ppicRepository.resetToInitialData();
     resetFilters();
     refreshData();
-    showToast('Data dikembalikan ke dataset standar PPIC', 'info');
+    showToast('Seluruh data aktif dan jadwal manual berhasil dibersihkan', 'info');
   }, [refreshData, resetFilters, showToast]);
 
   return (

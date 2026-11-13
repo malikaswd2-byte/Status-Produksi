@@ -182,8 +182,8 @@ export function extractStageAndWorkCenter(rawValue: any): StageWorkCenterExtract
   if (rawValue === null || rawValue === undefined || String(rawValue).trim() === '') {
     return {
       raw: '',
-      stage: 'Cutting',
-      workCenter: 'Unassigned',
+      stage: '-',
+      workCenter: '-',
       isRecognized: false,
       needsVerification: true,
       issue: 'Kolom Work Center/Tahapan kosong',
@@ -246,7 +246,7 @@ export function extractStageAndWorkCenter(rawValue: any): StageWorkCenterExtract
   }
 
   // 5. QA
-  if (/^qa\b|quality[_\s.-]?assurance|audit[_\s.-]?qa|final[_\s.-]?audit/i.test(lower)) {
+  if (/\bqa\b|quality[_\s.-]?assurance|audit[_\s.-]?qa|final[_\s.-]?audit/i.test(lower)) {
     return {
       raw,
       stage: 'QA',
@@ -448,6 +448,35 @@ export function recognizeTemplate(
       findMatchingHeader(headers, /qty[_\s.-]?repair/i) ||
       findMatchingHeader(headers, /repair[_\s.-]?qty/i);
 
+    const headerStageExplicit = findMatchingHeader(
+      headers,
+      /^(stage|tahap|tahap[_\s.-]?produksi|tahapan|production[_\s.-]?stage)$/i
+    );
+    const headerActualQty = findMatchingHeader(
+      headers,
+      /^(actual|actual[_\s.-]?qty|output|output[_\s.-]?aktual|qty[_\s.-]?aktual)$/i
+    );
+    const headerQAStatus = findMatchingHeader(
+      headers,
+      /^(qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|hasil[_\s.-]?qa|status[_\s.-]?kualitas)$/i
+    );
+    const headerStartDate = findMatchingHeader(
+      headers,
+      /^(start[_\s.-]?date|tgl[_\s.-]?mulai|tanggal[_\s.-]?mulai)$/i
+    );
+    const headerEndDate = findMatchingHeader(
+      headers,
+      /^(end[_\s.-]?date|tgl[_\s.-]?selesai|tanggal[_\s.-]?selesai|due[_\s.-]?date)$/i
+    );
+    const headerDeliveryDate = findMatchingHeader(
+      headers,
+      /^(delivery[_\s.-]?date|tgl[_\s.-]?kirim|tanggal[_\s.-]?pengiriman|ship[_\s.-]?date)$/i
+    );
+    const headerNotes = findMatchingHeader(
+      headers,
+      /^(notes|catatan|keterangan|remark|remarks)$/i
+    );
+
     const mapping: Partial<ColumnMappingConfig> = {
       buyer: headerCustomer,
       routing: headerRouting,
@@ -460,8 +489,14 @@ export function recognizeTemplate(
       // Map MO specifically to Display Name column (Requirement 1 & 2)
       // If Display Name is not present, moNumber remains undefined so warning is triggered
       moNumber: headerMODisplayName,
-      productionStage: headerWC,
+      productionStage: headerStageExplicit || headerWC,
       targetQty: headerOrigQty || headerQty,
+      actualQty: headerActualQty || headerQty,
+      qaStatus: headerQAStatus,
+      startDate: headerStartDate,
+      endDate: headerEndDate,
+      deliveryDate: headerDeliveryDate,
+      notes: headerNotes,
     };
 
     return {
@@ -584,10 +619,7 @@ export function detectColumnMappings(
       /buyer/i,
     ],
     qaStatus: [
-      /^(qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|inspeksi|hasil[_\s.-]?qc)$/i,
-      /qa/i,
-      /qc/i,
-      /quality/i,
+      /^(qa[_\s.-]?status|status[_\s.-]?qa|qc[_\s.-]?status|status[_\s.-]?qc|hasil[_\s.-]?qa|hasil[_\s.-]?qc|status[_\s.-]?kualitas|quality[_\s.-]?status)$/i,
     ],
     sewingCondition: [
       /^(kondisi[_\s.-]?sewing|status[_\s.-]?sewing|sewing[_\s.-]?condition)$/i,
@@ -816,28 +848,53 @@ export function parseExcelWorkbook(
     }
 
     // 2. Stage & Work Center Extraction
+    // Rule: Keep original Work Center from Excel; if empty, display '-'.
+    // If an explicit Stage column differs from Work Center column, read Stage from Stage column
+    // and Work Center strictly from Work Center column without inventing a name.
     const wcRawCol = detectedMapping.workCenter ? row[detectedMapping.workCenter] : undefined;
-    const stageExplicitCol =
-      detectedMapping.productionStage && detectedMapping.productionStage !== detectedMapping.workCenter
-        ? row[detectedMapping.productionStage]
-        : undefined;
+    const wcRawStr = wcRawCol !== undefined && wcRawCol !== null ? String(wcRawCol).trim() : '';
+    const hasExplicitStageCol =
+      Boolean(detectedMapping.productionStage) &&
+      detectedMapping.productionStage !== detectedMapping.workCenter;
+    const stageExplicitCol = hasExplicitStageCol
+      ? row[detectedMapping.productionStage!]
+      : undefined;
+    const stageExplicitStr =
+      stageExplicitCol !== undefined && stageExplicitCol !== null
+        ? String(stageExplicitCol).trim()
+        : '';
 
-    const stageWC = extractStageAndWorkCenter(stageExplicitCol || wcRawCol);
+    const stageWC = stageExplicitStr
+      ? (() => {
+          const stageParsed = extractStageAndWorkCenter(stageExplicitStr);
+          const wcParsed = wcRawStr ? extractStageAndWorkCenter(wcRawStr) : null;
+          return {
+            raw: wcRawStr,
+            stage: stageParsed.stage,
+            workCenter: wcRawStr || '-',
+            line: wcParsed?.line ?? stageParsed.line,
+            isRecognized: stageParsed.isRecognized,
+            needsVerification: stageParsed.needsVerification,
+            issue: stageParsed.issue,
+          };
+        })()
+      : extractStageAndWorkCenter(wcRawStr);
 
     if (!stageWC.isRecognized) {
       needsVerification = true;
-      unrecognizedStagesSet.add(stageWC.stage);
+      if (stageWC.stage && stageWC.stage !== '-') {
+        unrecognizedStagesSet.add(stageWC.stage);
+      }
       verificationIssues.push(stageWC.issue || `Tahapan "${stageWC.stage}" belum dikenali`);
     }
 
     // 3. Quantity Parsing
     // Rules:
-    // - Original Production Q -> originalQty
-    // - Quantity -> quantity
-    // - Qty Sisa -> remainingQty
-    // - Qty Repair -> repairQty
-    // - Do NOT assume Quantity as Actual Production!
-    // - Do NOT create fake formulas for Output Actual!
+    // - Original Production Quantity (Col G) -> originalQty (Target Produksi)
+    // - Quantity (Col H) -> quantity (Actual Production / Output)
+    // - Qty Sisa (Col I) -> remainingQty
+    // - Qty Repair (Col J) -> repairQty
+    // - Achievement (%) = Quantity / Original Production Quantity * 100%
     const parseNum = (val: any): number | undefined => {
       if (val === null || val === undefined || val === '') return undefined;
       const clean = String(val).replace(/[^0-9.-]+/g, '');
@@ -852,14 +909,25 @@ export function parseExcelWorkbook(
     const repairQty = detectedMapping.repairQty ? parseNum(row[detectedMapping.repairQty]) : undefined;
     const reworkQty = detectedMapping.reworkQty ? parseNum(row[detectedMapping.reworkQty]) : undefined;
 
-    // Target Qty defaults to originalQty, fallback to quantity or 0
-    const targetQty = originalQty ?? quantity ?? 0;
+    // Target Qty: Original Production Quantity (fallback to mapped targetQty or quantity)
+    const explicitTargetQty =
+      detectedMapping.targetQty &&
+      detectedMapping.targetQty !== detectedMapping.originalQty &&
+      row[detectedMapping.targetQty] !== undefined &&
+      row[detectedMapping.targetQty] !== ''
+        ? parseNum(row[detectedMapping.targetQty])
+        : undefined;
+    const targetQty = originalQty ?? explicitTargetQty ?? quantity ?? 0;
 
-    // Actual Qty: only if explicit actual column exists in Excel
-    let actualQty = 0;
-    if (detectedMapping.actualQty && row[detectedMapping.actualQty] !== undefined && row[detectedMapping.actualQty] !== '') {
-      actualQty = parseNum(row[detectedMapping.actualQty]) ?? 0;
-    }
+    // Actual Qty: explicit actualQty column if distinct, otherwise Quantity (Col H)
+    const explicitActualQty =
+      detectedMapping.actualQty &&
+      detectedMapping.actualQty !== detectedMapping.quantity &&
+      row[detectedMapping.actualQty] !== undefined &&
+      row[detectedMapping.actualQty] !== ''
+        ? parseNum(row[detectedMapping.actualQty])
+        : undefined;
+    const actualQty = explicitActualQty ?? quantity ?? 0;
 
     // 4. Sewing Condition & Repair
     // Qty Repair is strictly associated with Sewing. Never make it a QA status!
@@ -910,8 +978,8 @@ export function parseExcelWorkbook(
 
     seenMOs.add(moNumber);
     if (style) uniqueStyles.add(style);
-    if (stageWC.workCenter) uniqueWorkCenters.add(stageWC.workCenter);
-    if (stageWC.stage) uniqueStages.add(stageWC.stage);
+    if (stageWC.workCenter && stageWC.workCenter !== '-') uniqueWorkCenters.add(stageWC.workCenter);
+    if (stageWC.stage && stageWC.stage !== '-') uniqueStages.add(stageWC.stage);
 
     normalizedOrders.push({
       id: `${batchId}-${idx + 1}`,
@@ -989,7 +1057,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
       'Customer/Display Name': 'Uniqlo Global Retail',
       'Routing/Display Name': 'RT-POLO-MENS-V1',
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
-      'Work Orders/Work Center/Display Name': 'Cutting Section A',
+      'Work Orders/Work Center/Display Name': 'Cutting',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
       'Work Orders/Qty Sisa': 0,
@@ -1041,7 +1109,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
       'Customer/Display Name': '', // Empty: inherited
       'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
-      'Work Orders/Work Center/Display Name': 'QC Finishing Line',
+      'Work Orders/Work Center/Display Name': 'QC Finishing',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
       'Work Orders/Qty Sisa': 600,
@@ -1054,7 +1122,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
       'Customer/Display Name': '', // Empty: inherited
       'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
-      'Work Orders/Work Center/Display Name': 'QC Ukur Station',
+      'Work Orders/Work Center/Display Name': 'QC Ukur',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
       'Work Orders/Qty Sisa': 600,
@@ -1067,10 +1135,10 @@ export function generateSampleExcelWorkbook(): Uint8Array {
       'Customer/Display Name': '', // Empty: inherited
       'Routing/Display Name': '', // Empty: inherited
       'Work Orders/Style/Display Name': '[DAR002-9] DAR JEANS 002',
-      'Work Orders/Work Center/Display Name': 'QA Audit Room',
+      'Work Orders/Work Center/Display Name': 'QA',
       'Work Orders/Original Production Q': 1200,
       'Work Orders/Quantity': 1200,
-      'Work Orders/Qty Sisa': 600,
+      'Work Orders/Qty Sisa': 0,
       'Work Orders/Qty Repair': 0,
     },
     {
@@ -1080,7 +1148,7 @@ export function generateSampleExcelWorkbook(): Uint8Array {
       'Customer/Display Name': 'H&M Basic Apparel',
       'Routing/Display Name': 'RT-HOODIE-CW-02',
       'Work Orders/Style/Display Name': '[UNSIO1-2] UNSI HOODIE FLEECE 02',
-      'Work Orders/Work Center/Display Name': 'Cutting Section B',
+      'Work Orders/Work Center/Display Name': 'Cutting',
       'Work Orders/Original Production Q': 2000,
       'Work Orders/Quantity': 2000,
       'Work Orders/Qty Sisa': 0,

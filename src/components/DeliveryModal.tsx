@@ -38,22 +38,23 @@ export const DeliveryModal: React.FC<DeliveryModalProps> = ({
     } else if (targetOrder) {
       setMoNumber(targetOrder.moNumber);
       setStyle(targetOrder.style);
-      setDeliveryDate(targetOrder.deliveryDate || new Date().toISOString().split('T')[0]);
+      setDeliveryDate(targetOrder.deliveryDate || '');
 
       // Calculate remaining balance to recommend quantity
+      const orderQty = targetOrder.originalQty ?? targetOrder.targetQty;
       const summary = calculateDeliverySummary(
         targetOrder.moNumber,
-        targetOrder.targetQty,
+        orderQty,
         deliverySchedules
       );
-      setQuantity(summary.remainingQty > 0 ? summary.remainingQty : targetOrder.targetQty);
+      setQuantity(summary.remainingQty > 0 ? summary.remainingQty : orderQty);
       setNotes('');
       setStatus('Planned');
     } else {
       setMoNumber('');
       setStyle('');
-      setDeliveryDate(new Date().toISOString().split('T')[0]);
-      setQuantity(100);
+      setDeliveryDate('');
+      setQuantity(0);
       setNotes('');
       setStatus('Planned');
     }

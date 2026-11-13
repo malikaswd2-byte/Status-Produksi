@@ -28,7 +28,7 @@ const mockOrders: ManufacturingOrder[] = [
     id: 'ord-2',
     moNumber: 'MO-2026-001',
     style: 'Classic Polo',
-    workCenter: 'Cutting Section',
+    workCenter: 'Cutting Line 1',
     productionStage: 'Cutting',
     targetQty: 500,
     actualQty: 500,
@@ -105,7 +105,7 @@ test('aggregateStyles groups correctly without losing MO relations', () => {
 
 test('aggregateWorkCenters correctly groups data and calculates progress', () => {
   const wcs = aggregateWorkCenters(mockOrders);
-  const cutting = wcs.find((w) => w.name === 'Cutting Section');
+  const cutting = wcs.find((w) => w.name === 'Cutting Line 1');
   assert.ok(cutting);
   assert.equal(cutting?.totalTargetQty, 500);
   assert.equal(cutting?.totalActualQty, 500);
@@ -207,7 +207,7 @@ test('groupOrdersByMO groups orders by MO with merged Customer, Style and ordere
       moNumber: 'WH/MO/23169',
       style: 'UNSI JSU MHS 01',
       buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
-      workCenter: 'Cutting Section A',
+      workCenter: 'Cutting',
       productionStage: 'Cutting',
       targetQty: 1200,
       actualQty: 1200,
@@ -273,11 +273,10 @@ test('groupOrdersByMO groups orders by MO with merged Customer, Style and ordere
       moNumber: 'WH/MO/23169',
       style: 'UNSI JSU MHS 01',
       buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
-      workCenter: 'QA Audit Room',
+      workCenter: 'QA',
       productionStage: 'QA',
       targetQty: 1200,
       actualQty: 600,
-      qaStatus: 'Passed Final Audit 15-Nov',
       batchId: 'b-1',
     },
     {
@@ -285,7 +284,7 @@ test('groupOrdersByMO groups orders by MO with merged Customer, Style and ordere
       moNumber: 'WH/MO/23170',
       style: 'UNSI HOODIE FLEECE 02',
       buyer: 'PT GLOBAL GARMINDO UTAMA',
-      workCenter: 'Cutting Section B',
+      workCenter: 'Cutting Line 2',
       productionStage: 'Cutting',
       targetQty: 2000,
       actualQty: 2000,
@@ -317,7 +316,7 @@ test('filterOrders search keeps all 7 stages together when searching MO, Custome
       moNumber: 'WH/MO/23169',
       style: 'UNSI JSU MHS 01',
       buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
-      workCenter: 'Cutting Section A',
+      workCenter: 'Cutting',
       productionStage: 'Cutting',
       targetQty: 1200,
       actualQty: 1200,
@@ -383,11 +382,10 @@ test('filterOrders search keeps all 7 stages together when searching MO, Custome
       moNumber: 'WH/MO/23169',
       style: 'UNSI JSU MHS 01',
       buyer: 'YAYASAN ENAM PEDULI PENDIDIKAN',
-      workCenter: 'QA Audit Room',
+      workCenter: 'QA',
       productionStage: 'QA',
       targetQty: 1200,
       actualQty: 600,
-      qaStatus: 'Passed Final Audit 15-Nov',
       batchId: 'b-1',
     },
     {
@@ -395,7 +393,7 @@ test('filterOrders search keeps all 7 stages together when searching MO, Custome
       moNumber: 'WH/MO/23170',
       style: 'UNSI HOODIE FLEECE 02',
       buyer: 'PT GLOBAL GARMINDO UTAMA',
-      workCenter: 'Cutting Section B',
+      workCenter: 'Cutting Line 2',
       productionStage: 'Cutting',
       targetQty: 2000,
       actualQty: 2000,
@@ -444,7 +442,7 @@ test('filterOrders search keeps all 7 stages together when searching MO, Custome
 
   // 4. Search by Work Center in MO group
   const resWC = filterOrders(multiStageOrders, {
-    search: 'QA Audit Room',
+    search: 'Ironning Station 01',
     workCenter: '',
     style: '',
     mo: '',
@@ -454,4 +452,46 @@ test('filterOrders search keeps all 7 stages together when searching MO, Custome
     dateTo: '',
   });
   assert.equal(resWC.length, 7, 'Searching for a workcenter in WH/MO/23169 should return all 7 stages intact');
+});
+
+test('Acceptance Criteria: QA 1702/1702 = 100%, empty Work Center "-" excluded from WC stats, zero synthetic QA status, empty deliveries stay empty', () => {
+  const orders: ManufacturingOrder[] = [
+    {
+      id: 'acc-1',
+      moNumber: 'WH/MO/25001',
+      style: 'SHIRT A',
+      workCenter: '-',
+      productionStage: 'QA',
+      targetQty: 1702,
+      actualQty: 1702,
+      remainingQty: 0,
+      batchId: 'b-active',
+    },
+  ];
+
+  const stages = aggregateProductionStages(orders);
+  const qaStage = stages.find((s) => s.stageName === 'QA');
+  assert.ok(qaStage);
+  assert.equal(qaStage.completionRate, 100, 'QA 1702/1702 must yield 100% completionRate');
+  assert.equal(qaStage.remainingQty, 0);
+
+  const wcs = aggregateWorkCenters(orders);
+  assert.equal(wcs.length, 0, 'Placeholder "-" Work Center must not produce synthetic Work Center entry');
+
+  const kpis = calculateKPIs(orders, [], []);
+  assert.equal(kpis.totalWorkCenters, 0);
+  assert.equal(kpis.scheduledCount, 0);
+  assert.equal(kpis.totalDeliveries, 0);
+
+  const qaRecords = aggregateQAStatus(orders);
+  assert.equal(qaRecords.length, 0, 'Must NOT invent QA status when qaStatus is absent');
+
+  const styles = aggregateStyles(orders);
+  assert.deepEqual(styles[0].qaBreakdown, {}, 'Style qaBreakdown must NOT invent "Not Inspected"');
+
+  const emptyDeliveries = calculateDeliverySummary('WH/MO/25001', 1702, []);
+  assert.equal(emptyDeliveries.deliveryCount, 0);
+  assert.equal(emptyDeliveries.deliveries.length, 0);
+  assert.equal(emptyDeliveries.remainingQty, 1702);
+  assert.equal(emptyDeliveries.status, 'Not Scheduled');
 });

@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { QARecord } from '../../types/ppic';
+import { QARecord, ProductionStageSummary } from '../../types/ppic';
 import { ShieldCheck, Info } from 'lucide-react';
 
 interface QAStatusDonutProps {
   data: QARecord[];
+  qaStage?: ProductionStageSummary;
   title?: string;
   subtitle?: string;
 }
 
 export const QAStatusDonut: React.FC<QAStatusDonutProps> = ({
   data,
+  qaStage,
   title = 'Distribusi Status QA (Quality Assurance)',
   subtitle = 'Rekapitulasi proporsi hasil audit dan status inspeksi kualitas berdasarkan data aktual Excel',
 }) => {
@@ -18,15 +20,80 @@ export const QAStatusDonut: React.FC<QAStatusDonutProps> = ({
   const total = data.reduce((sum, item) => sum + item.count, 0);
 
   if (total === 0 || data.length === 0) {
+    const hasQAStageData = qaStage && (qaStage.targetQty > 0 || qaStage.actualQty > 0);
+    const qaRemaining = qaStage
+      ? qaStage.remainingQty !== undefined && qaStage.remainingQty >= 0
+        ? qaStage.remainingQty
+        : Math.max(0, qaStage.targetQty - qaStage.actualQty)
+      : 0;
+
     return (
-      <div className="bg-white border border-slate-200 rounded-xl p-8 flex flex-col items-center justify-center min-h-[220px] text-center shadow-2xs">
-        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
-          <Info className="w-5 h-5" />
+      <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-4 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <h3 className="text-base font-bold text-slate-900 tracking-tight">{title}</h3>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>
+          </div>
+          <span className="text-xs font-mono text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md self-start sm:self-auto">
+            Status QA Excel: <strong className="text-slate-900">-</strong>
+          </span>
         </div>
-        <h3 className="text-sm font-semibold text-slate-800 mb-1">{title}</h3>
-        <p className="text-xs text-slate-500 max-w-sm">
-          Data status QA belum tersedia pada kumpulan data yang aktif atau filter pencarian saat ini.
-        </p>
+
+        <div className="pt-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 shrink-0 mt-0.5">
+              <Info className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-800">
+                Status QA tidak tersedia pada file Excel aktif (ditampilkan: -)
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5 max-w-xl">
+                QA adalah tahapan produksi akhir. Sistem tidak membuat status kualitas buatan jika tidak ada kolom Status QA pada data Excel.
+              </p>
+            </div>
+          </div>
+
+          {hasQAStageData && qaStage && (
+            <div className="w-full md:w-96 p-4 rounded-lg bg-slate-50 border border-slate-200 space-y-2.5 shrink-0">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-800">Progres Tahap Produksi QA</span>
+                <span
+                  className={`font-mono font-bold ${
+                    qaStage.completionRate >= 100 ? 'text-emerald-700' : 'text-blue-700'
+                  }`}
+                >
+                  {qaStage.completionRate}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    qaStage.completionRate >= 100 ? 'bg-emerald-600' : 'bg-blue-600'
+                  }`}
+                  style={{ width: `${Math.min(100, qaStage.completionRate)}%` }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono">
+                <div>
+                  <span className="text-slate-500 block font-sans">Target QA</span>
+                  <strong className="text-slate-900">{qaStage.targetQty.toLocaleString()} pcs</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block font-sans">Output QA</span>
+                  <strong className="text-emerald-700">{qaStage.actualQty.toLocaleString()} pcs</strong>
+                </div>
+                <div>
+                  <span className="text-slate-500 block font-sans">Sisa QA</span>
+                  <strong className="text-slate-700">{qaRemaining.toLocaleString()} pcs</strong>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }

@@ -31,9 +31,10 @@ export const GanttCalendarView: React.FC = () => {
     deleteDeliverySchedule,
   } = usePPIC();
 
-  // Calendar timeline view state (November 2026 default or current month)
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(10); // 0-indexed: 10 = November
+  // Calendar timeline view state defaults to current real month
+  const now = new Date();
+  const [currentYear, setCurrentYear] = useState(now.getFullYear());
+  const [currentMonth, setCurrentMonth] = useState(now.getMonth());
   const [activeSubTab, setActiveSubTab] = useState<'gantt' | 'deliveries'>('gantt');
 
   // Modals state
@@ -78,26 +79,31 @@ export const GanttCalendarView: React.FC = () => {
   };
 
   const handleCurrentMonth = () => {
-    setCurrentYear(2026);
-    setCurrentMonth(10); // November 2026
+    const today = new Date();
+    setCurrentYear(today.getFullYear());
+    setCurrentMonth(today.getMonth());
   };
 
-  // Distinct Work Centers from both orders and schedules
+  // Distinct Work Centers from both orders and schedules (excluding '-')
   const workCenters = useMemo(() => {
     const set = new Set<string>();
     filteredOrders.forEach((o) => {
-      if (o.workCenter) set.add(o.workCenter);
+      const wc = o.workCenter?.trim();
+      if (wc && wc !== '-') set.add(wc);
     });
     productionSchedules.forEach((s) => {
-      if (s.workCenter) set.add(s.workCenter);
+      const wc = s.workCenter?.trim();
+      if (wc && wc !== '-') set.add(wc);
     });
     return Array.from(set).sort();
   }, [filteredOrders, productionSchedules]);
 
-  // Unscheduled MOs: orders that are in filteredOrders but have no production schedule
+  // Unscheduled MOs: orders that are in filteredOrders without manual schedule or Excel startDate/endDate
   const unscheduledOrders = useMemo(() => {
     const scheduledMONumbers = new Set(productionSchedules.map((s) => s.moNumber));
-    return filteredOrders.filter((o) => !scheduledMONumbers.has(o.moNumber));
+    return filteredOrders.filter(
+      (o) => !scheduledMONumbers.has(o.moNumber) && !(o.startDate && o.endDate)
+    );
   }, [filteredOrders, productionSchedules]);
 
   // Filter deliveries
@@ -231,7 +237,7 @@ export const GanttCalendarView: React.FC = () => {
                   onClick={handleCurrentMonth}
                   className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 transition-colors"
                 >
-                  Bulan Ini (Nov 2026)
+                  Bulan Ini
                 </button>
               </div>
 
@@ -291,7 +297,14 @@ export const GanttCalendarView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {workCenters.map((wc) => {
+                  {workCenters.length === 0 ? (
+                    <tr>
+                      <td colSpan={daysInMonth + 1} className="p-8 text-center text-xs text-slate-500">
+                        Belum ada Work Center atau jadwal produksi aktif. Upload file Excel atau klik "+ Buat Jadwal Produksi" untuk menambahkan jadwal secara manual.
+                      </td>
+                    </tr>
+                  ) : (
+                    workCenters.map((wc) => {
                     // Schedules on this work center
                     const wcSchedules = productionSchedules.filter((s) => s.workCenter === wc);
 
@@ -385,9 +398,11 @@ export const GanttCalendarView: React.FC = () => {
                               if (delDate.getMonth() !== currentMonth || delDate.getFullYear() !== currentYear)
                                 return null;
 
-                              // Check if this delivery belongs to an MO produced here
-                              const matchingOrder = orders.find((o) => o.moNumber === del.moNumber);
-                              if (matchingOrder?.workCenter !== wc) return null;
+                              // Check if this delivery belongs to an MO scheduled or produced on this work center
+                              const matchesWC =
+                                wcSchedules.some((s) => s.moNumber === del.moNumber) ||
+                                orders.some((o) => o.moNumber === del.moNumber && o.workCenter === wc);
+                              if (!matchesWC) return null;
 
                               const day = delDate.getDate();
                               const leftPercent = ((day - 0.5) / daysInMonth) * 100;
@@ -414,7 +429,8 @@ export const GanttCalendarView: React.FC = () => {
                         </td>
                       </tr>
                     );
-                  })}
+                  })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -438,9 +454,13 @@ export const GanttCalendarView: React.FC = () => {
             </div>
 
             {unscheduledOrders.length === 0 ? (
-              <div className="p-4 bg-emerald-50/60 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span>Seluruh Manufacturing Order aktif telah terjadwal di kalender Gantt!</span>
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-slate-500 shrink-0" />
+                <span>
+                  {filteredOrders.length === 0
+                    ? 'Belum ada Manufacturing Order aktif.'
+                    : 'Seluruh Manufacturing Order aktif telah memiliki jadwal produksi.'}
+                </span>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -462,7 +482,7 @@ export const GanttCalendarView: React.FC = () => {
                         {order.style}
                       </h4>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        Lini: {order.workCenter} · Tahap: {order.productionStage}
+                        Lini: {order.workCenter || '-'} · Tahap: {order.productionStage}
                       </p>
                     </div>
 
@@ -531,13 +551,13 @@ export const GanttCalendarView: React.FC = () => {
 
             {deliveriesByMO.size === 0 ? (
               <div className="p-8 text-center text-xs text-slate-500">
-                Belum ada data pengiriman yang dicatat. Klik "+ Tambah Delivery" untuk memasukkan jadwal.
+                Belum ada jadwal pengiriman
               </div>
             ) : (
               <div className="divide-y divide-slate-200">
                 {Array.from(deliveriesByMO.entries()).map(([moNo, dList]) => {
                   const matchingOrder = orders.find((o) => o.moNumber === moNo);
-                  const orderTarget = matchingOrder?.targetQty || 0;
+                  const orderTarget = matchingOrder?.originalQty ?? matchingOrder?.targetQty ?? 0;
                   const totalDelivered = dList.reduce((sum, d) => sum + d.quantity, 0);
                   const remaining = Math.max(0, orderTarget - totalDelivered);
 

@@ -66,10 +66,16 @@ export const Sidebar: React.FC = () => {
         <div className="p-3 bg-slate-800/60 rounded-lg border border-slate-800 text-xs">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Database className="w-3 h-3 text-emerald-400" />
+              <Database className={`w-3 h-3 ${activeBatch ? 'text-emerald-400' : 'text-slate-500'}`} />
               Batch Aktif
             </span>
-            <span className="text-[10px] font-mono text-emerald-400 font-medium">LIVE</span>
+            <span
+              className={`text-[10px] font-mono font-medium ${
+                activeBatch ? 'text-emerald-400' : 'text-slate-500'
+              }`}
+            >
+              {activeBatch ? 'AKTIF' : 'KOSONG'}
+            </span>
           </div>
 
           <p className="text-slate-200 font-medium truncate text-xs" title={activeBatch?.fileName}>
@@ -85,18 +91,18 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Quick Reset to Sample Data */}
+        {/* Clear All Active Data */}
         <div className="mt-3 px-1">
           <button
             onClick={() => {
-              if (window.confirm('Muat ulang data contoh resmi PPIC?')) {
+              if (window.confirm('Hapus seluruh dataset aktif dan jadwal manual dari penyimpanan lokal?')) {
                 resetToSampleData();
               }
             }}
             className="w-full flex items-center justify-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-200 py-1.5 hover:bg-slate-800 rounded transition-colors"
           >
             <RotateCcw className="w-3 h-3" />
-            Reset ke Data Sampel PPIC
+            Bersihkan Data Aktif
           </button>
         </div>
       </div>

@@ -39,20 +39,32 @@ export const MODetailModal: React.FC = () => {
   // Find provenance batch
   const originBatch = batches.find((b) => b.id === selectedMO.batchId);
 
-  // Find production schedule
+  // Find production schedule (manual first, else explicit Excel startDate/endDate if present)
   const currentSchedule = productionSchedules.find((s) => s.moNumber === selectedMO.moNumber);
+  const excelScheduledStage = moStages.find((s) => s.startDate && s.endDate);
+
+  // Order target quantity for delivery balance (never summed across 7 stages)
+  const moOrderQty =
+    selectedMO.originalQty ??
+    selectedMO.targetQty ??
+    moStages[0]?.originalQty ??
+    moStages[0]?.targetQty ??
+    0;
 
   // Calculate delivery summary
   const deliverySummary = calculateDeliverySummary(
     selectedMO.moNumber,
-    selectedMO.targetQty,
+    moOrderQty,
     deliverySchedules
   );
 
-  const balance = Math.max(0, selectedMO.targetQty - selectedMO.actualQty);
+  const balance =
+    selectedMO.remainingQty !== undefined
+      ? selectedMO.remainingQty
+      : Math.max(0, selectedMO.targetQty - selectedMO.actualQty);
   const progressPercent =
     selectedMO.targetQty > 0
-      ? Math.min(100, Math.round((selectedMO.actualQty / selectedMO.targetQty) * 100))
+      ? Math.round((selectedMO.actualQty / selectedMO.targetQty) * 100)
       : 0;
 
   return (
@@ -157,8 +169,13 @@ export const MODetailModal: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Work Center / Line:</span>
                     <span className="font-semibold text-slate-800">
-                      {selectedMO.workCenter}
-                      {selectedMO.line && selectedMO.line !== selectedMO.workCenter ? ` (${selectedMO.line})` : ''}
+                      {selectedMO.workCenter || '-'}
+                      {selectedMO.workCenter &&
+                      selectedMO.workCenter !== '-' &&
+                      selectedMO.line &&
+                      selectedMO.line !== selectedMO.workCenter
+                        ? ` (${selectedMO.line})`
+                        : ''}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -233,7 +250,7 @@ export const MODetailModal: React.FC = () => {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Nama File:</span>
                     <span className="font-medium text-slate-800 truncate max-w-[200px]" title={originBatch?.fileName}>
-                      {originBatch?.fileName || 'Sistem Bawaan'}
+                      {originBatch?.fileName || '-'}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -271,13 +288,21 @@ export const MODetailModal: React.FC = () => {
                       <th className="py-2 px-3 font-semibold text-right">Target</th>
                       <th className="py-2 px-3 font-semibold text-right">Output</th>
                       <th className="py-2 px-3 font-semibold text-right">Sisa</th>
+                      <th className="py-2 px-3 font-semibold text-right">Pencapaian</th>
                       <th className="py-2 px-3 font-semibold text-center">Status / Kondisi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {moStages.map((stg) => {
                       const isSelected = stg.id === selectedMO.id;
-                      const sisa = Math.max(0, stg.targetQty - stg.actualQty);
+                      const sisa =
+                        stg.remainingQty !== undefined
+                          ? stg.remainingQty
+                          : Math.max(0, stg.targetQty - stg.actualQty);
+                      const stgAchievement =
+                        stg.targetQty > 0
+                          ? Math.round((stg.actualQty / stg.targetQty) * 100)
+                          : 0;
                       return (
                         <tr
                           key={stg.id}
@@ -297,10 +322,13 @@ export const MODetailModal: React.FC = () => {
                             )}
                           </td>
                           <td className="py-2 px-3 text-slate-700">
-                            <span>{stg.workCenter}</span>
-                            {stg.line && stg.line !== stg.workCenter && (
-                              <span className="ml-1 text-[10px] text-slate-400 font-mono">({stg.line})</span>
-                            )}
+                            <span>{stg.workCenter || '-'}</span>
+                            {stg.workCenter &&
+                              stg.workCenter !== '-' &&
+                              stg.line &&
+                              stg.line !== stg.workCenter && (
+                                <span className="ml-1 text-[10px] text-slate-400 font-mono">({stg.line})</span>
+                              )}
                           </td>
                           <td className="py-2 px-3 font-mono text-right text-slate-700">
                             {stg.targetQty.toLocaleString()}
@@ -310,6 +338,11 @@ export const MODetailModal: React.FC = () => {
                           </td>
                           <td className="py-2 px-3 font-mono text-right text-slate-500">
                             {sisa.toLocaleString()}
+                          </td>
+                          <td className="py-2 px-3 font-mono text-right font-semibold">
+                            <span className={stgAchievement >= 100 ? 'text-emerald-700' : 'text-slate-700'}>
+                              {stgAchievement}%
+                            </span>
                           </td>
                           <td className="py-2 px-3 text-center">
                             {stg.productionStage === 'Sewing' && stg.sewingCondition && stg.sewingCondition !== 'Normal' ? (
@@ -322,13 +355,14 @@ export const MODetailModal: React.FC = () => {
                               >
                                 {stg.sewingCondition}
                                 {stg.repairQty ? ` (${stg.repairQty} pcs)` : ''}
+                                {stg.reworkQty ? ` (${stg.reworkQty} pcs)` : ''}
                               </span>
                             ) : stg.qaStatus ? (
                               <span className="text-[10px] font-medium text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                                 {stg.qaStatus}
                               </span>
                             ) : (
-                              <span className="text-[10px] text-slate-400 font-medium">Normal</span>
+                              <span className="text-[11px] text-slate-400 font-mono">-</span>
                             )}
                           </td>
                         </tr>
@@ -364,16 +398,33 @@ export const MODetailModal: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-slate-500 block">Line / Work Center:</span>
-                    <span className="font-semibold text-slate-800">{currentSchedule.workCenter}</span>
+                    <span className="font-semibold text-slate-800">{currentSchedule.workCenter || '-'}</span>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Status Timeline:</span>
                     <span className="font-medium text-blue-700">{currentSchedule.status}</span>
                   </div>
                 </div>
+              ) : excelScheduledStage ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-500 block">Jadwal Excel (Mulai - Selesai):</span>
+                    <span className="font-mono font-medium text-slate-800">
+                      {excelScheduledStage.startDate} s/d {excelScheduledStage.endDate}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Line / Work Center:</span>
+                    <span className="font-semibold text-slate-800">{excelScheduledStage.workCenter || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block">Sumber:</span>
+                    <span className="font-medium text-slate-700">Data Excel</span>
+                  </div>
+                </div>
               ) : (
                 <p className="text-xs text-slate-500 italic">
-                  MO ini belum memiliki jadwal produksi pada kalender Gantt. Klik tombol di atas untuk menjadwalkan.
+                  Jadwal produksi belum tersedia.
                 </p>
               )}
             </div>
@@ -406,7 +457,7 @@ export const MODetailModal: React.FC = () => {
               <div className="flex flex-wrap items-center gap-4 text-xs font-mono p-2.5 bg-slate-50 rounded-md border border-slate-100">
                 <div>
                   <span className="text-slate-500">Total Order: </span>
-                  <strong className="text-slate-800">{selectedMO.targetQty.toLocaleString()} pcs</strong>
+                  <strong className="text-slate-800">{moOrderQty.toLocaleString()} pcs</strong>
                 </div>
                 <span className="text-slate-300">|</span>
                 <div>
@@ -486,7 +537,7 @@ export const MODetailModal: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-xs text-slate-500 italic py-2">
-                  Belum ada jadwal delivery yang dicatat untuk MO ini. Klik tombol di atas untuk menambahkan delivery pertama.
+                  Belum ada jadwal pengiriman
                 </p>
               )}
             </div>

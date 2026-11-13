@@ -60,6 +60,10 @@ export const ProductionMonitoringView: React.FC = () => {
     return aggregateQAStatus(filteredOrders);
   }, [filteredOrders]);
 
+  const qaStage = useMemo(() => {
+    return stagesData.find((s) => s.stageName === 'QA');
+  }, [stagesData]);
+
   // Sort MO Groups
   const sortedMOGroups = useMemo(() => {
     return [...moGroups].sort((a, b) => {
@@ -74,7 +78,7 @@ export const ProductionMonitoringView: React.FC = () => {
   }, [moGroups, moSortField, moSortDirection]);
 
   // Pagination for MO Groups (Guarantees every stage belonging to an MO stays on the same page)
-  const totalMO时不Pages = Math.ceil(sortedMOGroups.length / moItemsPerPage) || 1;
+  const totalMOPages = Math.ceil(sortedMOGroups.length / moItemsPerPage) || 1;
   const paginatedMOGroups = sortedMOGroups.slice(
     (moPage - 1) * moItemsPerPage,
     moPage * moItemsPerPage
@@ -161,6 +165,7 @@ export const ProductionMonitoringView: React.FC = () => {
       <div className="w-full">
         <QAStatusDonut
           data={qaData}
+          qaStage={qaStage}
           title="Distribusi Status QA (Quality Assurance)"
           subtitle="Rekapitulasi proporsi hasil audit dan status inspeksi kualitas berdasarkan data aktual"
         />
@@ -231,69 +236,69 @@ export const ProductionMonitoringView: React.FC = () => {
                     {/* Customer */}
                     <th
                       onClick={() => handleMOSort('customer')}
-                      className="py-3 px-3.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[170px]"
+                      className="py-3 px-2.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[125px]"
                     >
                       <div className="flex items-center gap-1">
                         <span>Customer / Buyer</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
 
                     {/* MO Display Name */}
                     <th
                       onClick={() => handleMOSort('moNumber')}
-                      className="py-3 px-3.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[150px]"
+                      className="py-3 px-2.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[115px]"
                     >
                       <div className="flex items-center gap-1">
                         <span>Nomor MO</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
 
                     {/* Style */}
                     <th
                       onClick={() => handleMOSort('style')}
-                      className="py-3 px-3.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[160px]"
+                      className="py-3 px-2.5 font-semibold cursor-pointer hover:text-slate-900 border-r border-slate-200 min-w-[115px]"
                     >
                       <div className="flex items-center gap-1">
                         <span>Style</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
 
                     {/* Stage Specific Columns */}
-                    <th className="py-3 px-3 font-semibold min-w-[140px]">Tahap Produksi</th>
-                    <th className="py-3 px-3 font-semibold min-w-[150px]">Work Center</th>
+                    <th className="py-3 px-2.5 font-semibold min-w-[130px]">Tahap Produksi</th>
+                    <th className="py-3 px-2.5 font-semibold min-w-[110px]">Work Center</th>
                     <th
                       onClick={() => handleMOSort('totalTargetQty')}
-                      className="py-3 px-3 font-semibold text-right cursor-pointer hover:text-slate-900 min-w-[95px]"
+                      className="py-3 px-2 font-semibold text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        <span>Target (pcs)</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <span>Target</span>
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
                     <th
                       onClick={() => handleMOSort('totalActualQty')}
-                      className="py-3 px-3 font-semibold text-right cursor-pointer hover:text-slate-900 min-w-[95px]"
+                      className="py-3 px-2 font-semibold text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       <div className="flex items-center justify-end gap-1">
-                        <span>Output (pcs)</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <span>Output</span>
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
-                    <th className="py-3 px-3 font-semibold text-right min-w-[90px]">Sisa (pcs)</th>
+                    <th className="py-3 px-2 font-semibold text-right whitespace-nowrap">Sisa</th>
                     <th
                       onClick={() => handleMOSort('progressPercent')}
-                      className="py-3 px-3 font-semibold text-right cursor-pointer hover:text-slate-900 min-w-[95px]"
+                      className="py-3 px-2 font-semibold text-right cursor-pointer hover:text-slate-900 whitespace-nowrap"
                     >
                       <div className="flex items-center justify-end gap-1">
                         <span>Progres</span>
-                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                        <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" />
                       </div>
                     </th>
-                    <th className="py-3 px-3 font-semibold min-w-[150px]">Kondisi / QA Status</th>
-                    <th className="py-3 px-3 font-semibold text-right min-w-[85px]">Aksi</th>
+                    <th className="py-3 px-2 font-semibold min-w-[95px]">Kondisi / QA</th>
+                    <th className="py-3 px-2.5 font-semibold text-right whitespace-nowrap">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -308,10 +313,7 @@ export const ProductionMonitoringView: React.FC = () => {
 
                           const progress =
                             stageOrder.targetQty > 0
-                              ? Math.min(
-                                  100,
-                                  Math.round((stageOrder.actualQty / stageOrder.targetQty) * 100)
-                                )
+                              ? Math.round((stageOrder.actualQty / stageOrder.targetQty) * 100)
                               : 0;
 
                           const remaining =
@@ -330,16 +332,16 @@ export const ProductionMonitoringView: React.FC = () => {
                               {isFirstRow && (
                                 <td
                                   rowSpan={stageCount}
-                                  className="py-3 px-3.5 align-middle bg-slate-50/80 border-r border-slate-200 text-slate-800"
+                                  className="py-3 px-2.5 align-middle bg-slate-50/80 border-r border-slate-200 text-slate-800 max-w-[160px]"
                                 >
-                                  <div className="flex items-start gap-2">
-                                    <Building2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                                    <div className="space-y-0.5">
-                                      <span className="font-semibold text-slate-900 block leading-tight text-xs">
+                                  <div className="flex items-start gap-1.5">
+                                    <Building2 className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                    <div className="space-y-0.5 min-w-0">
+                                      <span className="font-semibold text-slate-900 block leading-tight text-xs break-words">
                                         {group.customer}
                                       </span>
                                       {group.routing && group.routing !== '-' && (
-                                        <span className="text-[10px] text-slate-500 font-mono block">
+                                        <span className="text-[10px] text-slate-500 font-mono block truncate" title={group.routing}>
                                           Routing: {group.routing}
                                         </span>
                                       )}
@@ -352,18 +354,18 @@ export const ProductionMonitoringView: React.FC = () => {
                               {isFirstRow && (
                                 <td
                                   rowSpan={stageCount}
-                                  className="py-3 px-3.5 align-middle bg-slate-50/80 border-r border-slate-200"
+                                  className="py-3 px-2.5 align-middle bg-slate-50/80 border-r border-slate-200"
                                 >
-                                  <div className="space-y-1.5">
+                                  <div className="space-y-1">
                                     <button
                                       onClick={() => setSelectedMO(stageOrder)}
-                                      className="font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline block text-xs tracking-tight text-left"
+                                      className="font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline block text-xs tracking-tight text-left whitespace-nowrap"
                                       title="Klik untuk membuka rincian MO"
                                     >
                                       {group.moNumber}
                                     </button>
-                                    <span className="inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                                      {stageCount} Tahap Produksi
+                                    <span className="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap">
+                                      {stageCount} Tahap
                                     </span>
                                   </div>
                                 </td>
@@ -373,26 +375,26 @@ export const ProductionMonitoringView: React.FC = () => {
                               {isFirstRow && (
                                 <td
                                   rowSpan={stageCount}
-                                  className="py-3 px-3.5 align-middle bg-slate-50/50 border-r border-slate-200 text-slate-800"
+                                  className="py-3 px-2.5 align-middle bg-slate-50/50 border-r border-slate-200 text-slate-800 max-w-[140px]"
                                 >
                                   <div className="space-y-0.5">
                                     <span
-                                      className="font-semibold text-slate-900 block leading-tight text-xs"
+                                      className="font-semibold text-slate-900 block leading-tight text-xs break-words"
                                       title={group.style}
                                     >
                                       {group.style}
                                     </span>
-                                    <span className="text-[10px] text-slate-500 font-mono block">
-                                      Total Vol: {group.totalTargetQty.toLocaleString()} pcs
+                                    <span className="text-[10px] text-slate-500 font-mono block whitespace-nowrap">
+                                      Order: {(group.stages[0]?.originalQty ?? group.stages[0]?.targetQty ?? 0).toLocaleString()} pcs
                                     </span>
                                   </div>
                                 </td>
                               )}
 
                               {/* 4. Production Stage (Specific to this row) */}
-                              <td className="py-2.5 px-3 font-medium text-slate-900 whitespace-nowrap">
+                              <td className="py-2.5 px-2.5 font-medium text-slate-900 whitespace-nowrap">
                                 <span className="inline-flex items-center gap-1.5">
-                                  <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0">
+                                  <span className="w-4 h-4 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold flex items-center justify-center shrink-0">
                                     {stageIdx + 1}
                                   </span>
                                   <span className="font-semibold text-slate-800 text-xs">
@@ -403,31 +405,31 @@ export const ProductionMonitoringView: React.FC = () => {
 
                               {/* 5. Work Center (Specific to this row) */}
                               <td
-                                className="py-2.5 px-3 text-slate-700 max-w-[160px] truncate text-xs"
-                                title={stageOrder.workCenter}
+                                className="py-2.5 px-2.5 text-slate-700 max-w-[130px] truncate text-xs"
+                                title={stageOrder.workCenter || '-'}
                               >
-                                {stageOrder.workCenter}
+                                {stageOrder.workCenter || '-'}
                               </td>
 
                               {/* 6. Target Qty */}
-                              <td className="py-2.5 px-3 font-mono text-right text-slate-700 text-xs">
+                              <td className="py-2.5 px-2 font-mono text-right text-slate-700 text-xs whitespace-nowrap">
                                 {stageOrder.targetQty.toLocaleString()}
                               </td>
 
                               {/* 7. Output Qty */}
-                              <td className="py-2.5 px-3 font-mono text-right font-semibold text-emerald-700 text-xs">
+                              <td className="py-2.5 px-2 font-mono text-right font-semibold text-emerald-700 text-xs whitespace-nowrap">
                                 {stageOrder.actualQty.toLocaleString()}
                               </td>
 
                               {/* 8. Sisa / Backlog Qty */}
-                              <td className="py-2.5 px-3 font-mono text-right text-slate-600 text-xs">
+                              <td className="py-2.5 px-2 font-mono text-right text-slate-600 text-xs whitespace-nowrap">
                                 {remaining.toLocaleString()}
                               </td>
 
                               {/* 9. Progress */}
-                              <td className="py-2.5 px-3 text-right">
+                              <td className="py-2.5 px-2 text-right whitespace-nowrap">
                                 <div className="flex items-center justify-end gap-1.5">
-                                  <div className="w-12 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="w-9 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
                                     <div
                                       className={`h-full ${
                                         progress >= 100
@@ -436,7 +438,7 @@ export const ProductionMonitoringView: React.FC = () => {
                                           ? 'bg-amber-500'
                                           : 'bg-blue-600'
                                       }`}
-                                      style={{ width: `${progress}%` }}
+                                      style={{ width: `${Math.min(100, progress)}%` }}
                                     />
                                   </div>
                                   <span className="font-mono text-[11px] font-semibold text-slate-700 w-8 text-right">
@@ -446,7 +448,7 @@ export const ProductionMonitoringView: React.FC = () => {
                               </td>
 
                               {/* 10. Kondisi Sewing / Status QA */}
-                              <td className="py-2.5 px-3">
+                              <td className="py-2.5 px-2 whitespace-nowrap">
                                 {stageOrder.productionStage === 'Sewing' &&
                                 stageOrder.sewingCondition &&
                                 stageOrder.sewingCondition !== 'Normal' ? (
@@ -473,13 +475,13 @@ export const ProductionMonitoringView: React.FC = () => {
                               </td>
 
                               {/* 11. Action Button */}
-                              <td className="py-2.5 px-3 text-right">
+                              <td className="py-2.5 px-2.5 text-right whitespace-nowrap">
                                 <button
                                   onClick={() => setSelectedMO(stageOrder)}
                                   className="text-xs text-blue-600 hover:text-blue-800 font-medium inline-flex items-center gap-1 hover:underline"
                                 >
                                   <Eye className="w-3.5 h-3.5" />
-                                  Buka MO
+                                  Buka
                                 </button>
                               </td>
                             </tr>
@@ -494,7 +496,7 @@ export const ProductionMonitoringView: React.FC = () => {
               {/* Pagination Controls for MO Groups */}
               <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
                 <span className="font-mono">
-                  Halaman {moPage} dari {totalMO时不Pages} ({sortedMOGroups.length} Kelompok MO · {totalVisibleStages} Tahap pada halaman ini · {filteredOrders.length} Total Tahap)
+                  Halaman {moPage} dari {totalMOPages} ({sortedMOGroups.length} Kelompok MO · {totalVisibleStages} Tahap pada halaman ini · {filteredOrders.length} Total Tahap)
                 </span>
                 <div className="flex items-center gap-1.5">
                   <button
@@ -505,8 +507,8 @@ export const ProductionMonitoringView: React.FC = () => {
                     Sebelumnya
                   </button>
                   <button
-                    disabled={moPage === totalMO时不Pages}
-                    onClick={() => setMoPage((p) => Math.min(totalMO时不Pages, p + 1))}
+                    disabled={moPage === totalMOPages}
+                    onClick={() => setMoPage((p) => Math.min(totalMOPages, p + 1))}
                     className="px-2.5 py-1 rounded bg-white border border-slate-200 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 font-medium"
                   >
                     Selanjutnya
@@ -682,7 +684,7 @@ export const ProductionMonitoringView: React.FC = () => {
                                         <td className="py-2 px-3 font-mono font-semibold text-blue-600">
                                           {ord.moNumber}
                                         </td>
-                                        <td className="py-2 px-3 text-slate-700">{ord.workCenter}</td>
+                                        <td className="py-2 px-3 text-slate-700">{ord.workCenter || '-'}</td>
                                         <td className="py-2 px-3 text-slate-700">
                                           <span>{ord.productionStage}</span>
                                           {ord.productionStage === 'Sewing' &&
@@ -706,9 +708,9 @@ export const ProductionMonitoringView: React.FC = () => {
                                           {ord.actualQty.toLocaleString()}
                                         </td>
                                         <td className="py-2 px-3 font-mono text-right text-slate-500">
-                                          {Math.max(
-                                            0,
-                                            ord.targetQty - ord.actualQty
+                                          {(ord.remainingQty !== undefined
+                                            ? ord.remainingQty
+                                            : Math.max(0, ord.targetQty - ord.actualQty)
                                           ).toLocaleString()}
                                         </td>
                                         <td className="py-2 px-3">

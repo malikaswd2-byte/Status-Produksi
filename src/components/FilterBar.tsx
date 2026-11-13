@@ -6,9 +6,13 @@ export const FilterBar: React.FC = () => {
   const { orders, filteredOrders, filters, updateFilter, resetFilters } = usePPIC();
 
   // Extract unique options from current active batch orders
-  const workCenters = Array.from(new Set(orders.map((o) => o.workCenter).filter(Boolean))).sort();
+  const workCenters = Array.from(
+    new Set(orders.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-'))
+  ).sort();
   const styles = Array.from(new Set(orders.map((o) => o.style).filter(Boolean))).sort();
-  const stages = Array.from(new Set(orders.map((o) => o.productionStage).filter(Boolean))).sort();
+  const stages = Array.from(
+    new Set(orders.map((o) => o.productionStage).filter((s) => Boolean(s) && s !== '-'))
+  ).sort();
   const qaStatuses = Array.from(new Set(orders.map((o) => o.qaStatus).filter(Boolean))).sort();
 
   const isAnyFilterActive =

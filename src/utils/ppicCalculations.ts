@@ -124,18 +124,22 @@ export function aggregateStyles(orders: ManufacturingOrder[]): StyleSummary[] {
 
   for (const [styleName, orderList] of styleMap.entries()) {
     const uniqueMOs = new Set(orderList.map((o) => o.moNumber));
-    const workCenters = Array.from(new Set(orderList.map((o) => o.workCenter).filter(Boolean)));
-    const stages = Array.from(new Set(orderList.map((o) => o.productionStage).filter(Boolean)));
+    const workCenters = Array.from(
+      new Set(orderList.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-'))
+    );
+    const stages = Array.from(new Set(orderList.map((o) => o.productionStage).filter((s) => Boolean(s) && s !== '-')));
 
     const totalTargetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
     const totalActualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
     const progressPercent =
-      totalTargetQty > 0 ? Math.min(100, Math.round((totalActualQty / totalTargetQty) * 100)) : 0;
+      totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
     const qaBreakdown: Record<string, number> = {};
     for (const order of orderList) {
-      const qa = order.qaStatus || 'Not Inspected';
-      qaBreakdown[qa] = (qaBreakdown[qa] || 0) + 1;
+      const qa = order.qaStatus?.trim();
+      if (qa) {
+        qaBreakdown[qa] = (qaBreakdown[qa] || 0) + 1;
+      }
     }
 
     let status: StyleSummary['status'] = 'Pending';
@@ -224,10 +228,14 @@ export function groupOrdersByMO(orders: ManufacturingOrder[]): MOGroup[] {
     );
 
     const progressPercent =
-      totalTargetQty > 0 ? Math.min(100, Math.round((totalActualQty / totalTargetQty) * 100)) : 0;
+      totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
-    const workCenters = Array.from(new Set(sortedStages.map((o) => o.workCenter).filter(Boolean)));
-    const stageNames = Array.from(new Set(sortedStages.map((o) => o.productionStage).filter(Boolean)));
+    const workCenters = Array.from(
+      new Set(sortedStages.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-'))
+    );
+    const stageNames = Array.from(
+      new Set(sortedStages.map((o) => o.productionStage).filter((s) => Boolean(s) && s !== '-'))
+    );
 
     const qaOrder = sortedStages.find((o) => o.qaStatus);
     const qaStatusSummary = qaOrder?.qaStatus;
@@ -271,7 +279,8 @@ export function aggregateWorkCenters(orders: ManufacturingOrder[]): WorkCenterSu
   const wcMap = new Map<string, ManufacturingOrder[]>();
 
   for (const order of orders) {
-    const wc = order.workCenter || 'Unassigned';
+    const wc = order.workCenter?.trim();
+    if (!wc || wc === '-') continue;
     if (!wcMap.has(wc)) {
       wcMap.set(wc, []);
     }
@@ -286,7 +295,7 @@ export function aggregateWorkCenters(orders: ManufacturingOrder[]): WorkCenterSu
     const totalTargetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
     const totalActualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
     const progressPercent =
-      totalTargetQty > 0 ? Math.min(100, Math.round((totalActualQty / totalTargetQty) * 100)) : 0;
+      totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
     result.push({
       name,
@@ -312,6 +321,8 @@ export function aggregateWorkCenters(orders: ManufacturingOrder[]): WorkCenterSu
  * 7. QA
  */
 export function aggregateProductionStages(orders: ManufacturingOrder[]): ProductionStageSummary[] {
+  if (orders.length === 0) return [];
+
   // Map of orders per stage
   const stageMap = new Map<string, ManufacturingOrder[]>();
 
@@ -321,7 +332,8 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
   }
 
   for (const order of orders) {
-    const rawStage = order.productionStage?.trim() || 'Cutting';
+    const rawStage = order.productionStage?.trim();
+    if (!rawStage || rawStage === '-') continue;
     // Match against standard stage (case-insensitive fuzzy match)
     const matchedStd = STANDARD_PRODUCTION_STAGES.find(
       (s) => s.toLowerCase() === rawStage.toLowerCase()
@@ -336,7 +348,9 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
   const rawList: ProductionStageSummary[] = [];
 
   for (const [stageName, orderList] of stageMap.entries()) {
-    const workCenters = Array.from(new Set(orderList.map((o) => o.workCenter).filter(Boolean)));
+    const workCenters = Array.from(
+      new Set(orderList.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-'))
+    );
     const uniqueMOs = new Set(orderList.map((o) => o.moNumber));
     const uniqueStyles = new Set(orderList.map((o) => o.style));
 
@@ -344,11 +358,22 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
     const actualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
     const originalQty = orderList.reduce((sum, o) => sum + (Number(o.originalQty) || 0), 0);
     const quantity = orderList.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
-    const remainingQty = orderList.reduce((sum, o) => sum + (Number(o.remainingQty) || 0), 0);
+
+    const hasExplicitRemaining = orderList.some((o) => o.remainingQty !== undefined);
+    const remainingQty = hasExplicitRemaining
+      ? orderList.reduce(
+          (sum, o) =>
+            sum +
+            (o.remainingQty !== undefined
+              ? Number(o.remainingQty)
+              : Math.max(0, (Number(o.targetQty) || 0) - (Number(o.actualQty) || 0))),
+          0
+        )
+      : undefined;
 
     const completionRate =
       targetQty > 0
-        ? Math.min(100, Math.round((actualQty / targetQty) * 100))
+        ? Math.round((actualQty / targetQty) * 100)
         : 0;
 
     const stdIndex = STANDARD_PRODUCTION_STAGES.indexOf(
@@ -366,19 +391,16 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
       for (const ord of orderList) {
         if (ord.sewingCondition === 'Repair') {
           repairCount++;
-          repairQty += Number(ord.repairQty || ord.actualQty || 0);
+          repairQty += Number(ord.repairQty || 0);
         } else if (ord.sewingCondition === 'Rework') {
           reworkCount++;
-          reworkQty += Number(ord.reworkQty || ord.actualQty || 0);
+          reworkQty += Number(ord.reworkQty || 0);
         } else if (ord.repairQty && ord.repairQty > 0) {
           repairCount++;
           repairQty += Number(ord.repairQty);
-        } else if (ord.notes && /repair/i.test(ord.notes)) {
-          repairCount++;
-          repairQty += Number(ord.repairQty || 0);
-        } else if (ord.notes && /rework/i.test(ord.notes)) {
+        } else if (ord.reworkQty && ord.reworkQty > 0) {
           reworkCount++;
-          reworkQty += Number(ord.reworkQty || 0);
+          reworkQty += Number(ord.reworkQty);
         }
       }
     }
@@ -393,7 +415,7 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
       actualQty,
       originalQty: originalQty > 0 ? originalQty : undefined,
       quantity: quantity > 0 ? quantity : undefined,
-      remainingQty: remainingQty > 0 ? remainingQty : undefined,
+      remainingQty,
       completionRate,
       isBottleneck: false,
       repairCount,
@@ -494,12 +516,14 @@ export function calculateKPIs(
 ) {
   const uniqueMOs = new Set(orders.map((o) => o.moNumber));
   const uniqueStyles = new Set(orders.map((o) => o.style));
-  const uniqueWorkCenters = new Set(orders.map((o) => o.workCenter).filter(Boolean));
+  const uniqueWorkCenters = new Set(
+    orders.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-')
+  );
 
   const totalTargetQty = orders.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
   const totalActualQty = orders.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
   const progressPercent =
-    totalTargetQty > 0 ? Math.min(100, Math.round((totalActualQty / totalTargetQty) * 100)) : 0;
+    totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
   const scheduledMONumbers = new Set(schedules.map((s) => s.moNumber));
   const scheduledCount = Array.from(uniqueMOs).filter((mo) => scheduledMONumbers.has(mo)).length;

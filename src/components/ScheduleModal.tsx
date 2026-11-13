@@ -29,7 +29,9 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
   const [error, setError] = useState('');
 
   // Extract unique work centers from orders
-  const workCenters = Array.from(new Set(orders.map((o) => o.workCenter).filter(Boolean)));
+  const workCenters = Array.from(
+    new Set(orders.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-'))
+  );
 
   useEffect(() => {
     if (existingSchedule) {
@@ -44,20 +46,19 @@ export const ScheduleModal: React.FC<ScheduleModalProps> = ({
     } else if (targetOrder) {
       setMoNumber(targetOrder.moNumber);
       setStyle(targetOrder.style);
-      setWorkCenter(targetOrder.workCenter);
-      setStartDate(targetOrder.startDate || new Date().toISOString().split('T')[0]);
-      setEndDate(targetOrder.endDate || new Date().toISOString().split('T')[0]);
+      setWorkCenter(targetOrder.workCenter && targetOrder.workCenter !== '-' ? targetOrder.workCenter : '');
+      setStartDate(targetOrder.startDate || '');
+      setEndDate(targetOrder.endDate || '');
       setTargetQty(targetOrder.targetQty);
       setNotes(targetOrder.notes || '');
       setStatus('Scheduled');
     } else {
       setMoNumber('');
       setStyle('');
-      setWorkCenter(workCenters[0] || 'Sewing Line 01');
-      const today = new Date().toISOString().split('T')[0];
-      setStartDate(today);
-      setEndDate(today);
-      setTargetQty(100);
+      setWorkCenter(workCenters[0] || '');
+      setStartDate('');
+      setEndDate('');
+      setTargetQty(0);
       setNotes('');
       setStatus('Scheduled');
     }

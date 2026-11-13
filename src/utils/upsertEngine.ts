@@ -172,7 +172,12 @@ export function analyzeAndExecuteUpsert(
               exOrd.reworkQty !== incOrd.reworkQty ||
               exOrd.sewingCondition !== incOrd.sewingCondition ||
               exOrd.qaStatus !== incOrd.qaStatus ||
-              exOrd.workCenter !== incOrd.workCenter;
+              exOrd.workCenter !== incOrd.workCenter ||
+              exOrd.buyer !== incOrd.buyer ||
+              exOrd.routing !== incOrd.routing ||
+              exOrd.startDate !== incOrd.startDate ||
+              exOrd.endDate !== incOrd.endDate ||
+              exOrd.deliveryDate !== incOrd.deliveryDate;
 
             if (qtyChanged) {
               moHadAnyUpdate = true;
@@ -190,26 +195,26 @@ export function analyzeAndExecuteUpsert(
                 isUnchanged: false,
               });
 
-              // Replace with latest Excel values without summing
+              // Replace strictly with latest Excel values without summing or preserving stale fake values
               updatedMOStages[matchIdx] = {
                 ...exOrd,
                 targetQty: incOrd.targetQty,
                 actualQty: incOrd.actualQty,
-                originalQty: incOrd.originalQty ?? exOrd.originalQty,
-                quantity: incOrd.quantity ?? exOrd.quantity,
-                remainingQty:
-                  incOrd.remainingQty !== undefined
-                    ? incOrd.remainingQty
-                    : Math.max(0, incOrd.targetQty - incOrd.actualQty),
-                repairQty: incOrd.repairQty ?? exOrd.repairQty,
-                reworkQty: incOrd.reworkQty ?? exOrd.reworkQty,
-                sewingCondition: incOrd.sewingCondition ?? exOrd.sewingCondition,
-                qaStatus: incOrd.qaStatus ?? exOrd.qaStatus,
-                routing: incOrd.routing || exOrd.routing,
-                buyer: incOrd.buyer || exOrd.buyer,
-                workCenter: incOrd.workCenter || exOrd.workCenter,
-                line: incOrd.line || exOrd.line,
-                notes: incOrd.notes || exOrd.notes,
+                originalQty: incOrd.originalQty,
+                quantity: incOrd.quantity,
+                remainingQty: incOrd.remainingQty,
+                repairQty: incOrd.repairQty,
+                reworkQty: incOrd.reworkQty,
+                sewingCondition: incOrd.sewingCondition,
+                qaStatus: incOrd.qaStatus,
+                routing: incOrd.routing,
+                buyer: incOrd.buyer,
+                workCenter: incOrd.workCenter || '-',
+                line: incOrd.line,
+                startDate: incOrd.startDate,
+                endDate: incOrd.endDate,
+                deliveryDate: incOrd.deliveryDate,
+                notes: incOrd.notes,
                 batchId: newBatchId, // Record latest batch update
               };
             } else {

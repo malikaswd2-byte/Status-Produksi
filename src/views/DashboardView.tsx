@@ -23,10 +23,11 @@ import {
   TrendingUp,
   ArrowUpRight,
   Building2,
+  UploadCloud,
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
-  const { filteredOrders, productionSchedules, deliverySchedules, setSelectedMO, setActiveTab } =
+  const { orders, filteredOrders, productionSchedules, deliverySchedules, setSelectedMO, setActiveTab } =
     usePPIC();
 
   // Dynamic calculations based strictly on filtered active data
@@ -35,6 +36,7 @@ export const DashboardView: React.FC = () => {
   const stylesData = aggregateStyles(filteredOrders);
   const stagesData = aggregateProductionStages(filteredOrders);
   const qaData = aggregateQAStatus(filteredOrders);
+  const qaStage = stagesData.find((s) => s.stageName === 'QA');
   const moGroups = React.useMemo(() => groupOrdersByMO(filteredOrders), [filteredOrders]);
 
   return (
@@ -51,6 +53,27 @@ export const DashboardView: React.FC = () => {
 
       {/* Integrated Filter Bar */}
       <FilterBar />
+
+      {orders.length === 0 && (
+        <div className="bg-white border border-dashed border-slate-300 rounded-xl p-8 text-center space-y-3">
+          <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center mx-auto">
+            <UploadCloud className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">Belum Ada Dataset Produksi Aktif</h3>
+            <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+              Seluruh metrik Dashboard hanya dihitung dari file Excel aktual yang di-upload. Silakan upload file Excel produksi untuk mulai memantau progres MO dan tahapan produksi.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab('upload')}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-2xs"
+          >
+            <UploadCloud className="w-4 h-4" />
+            Upload File Excel
+          </button>
+        </div>
+      )}
 
       {/* Summary KPI Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
@@ -147,7 +170,7 @@ export const DashboardView: React.FC = () => {
           <div className="w-full h-1 bg-slate-100 rounded-full mt-2 overflow-hidden">
             <div
               className="h-full bg-blue-600 rounded-full"
-              style={{ width: `${kpis.progressPercent}%` }}
+              style={{ width: `${Math.min(100, kpis.progressPercent)}%` }}
             />
           </div>
         </div>
@@ -166,7 +189,7 @@ export const DashboardView: React.FC = () => {
 
       {/* Section 3: Dedicated QA Monitoring Section with Ample Width */}
       <div className="w-full">
-        <QAStatusDonut data={qaData} />
+        <QAStatusDonut data={qaData} qaStage={qaStage} />
       </div>
 
       {/* Active Manufacturing Orders Table Preview */}
@@ -228,7 +251,7 @@ export const DashboardView: React.FC = () => {
 
                         const progress =
                           order.targetQty > 0
-                            ? Math.min(100, Math.round((order.actualQty / order.targetQty) * 100))
+                            ? Math.round((order.actualQty / order.targetQty) * 100)
                             : 0;
 
                         return (
@@ -293,8 +316,8 @@ export const DashboardView: React.FC = () => {
                             </td>
 
                             {/* Work Center */}
-                            <td className="py-2.5 px-3 text-slate-700 max-w-[140px] truncate" title={order.workCenter}>
-                              {order.workCenter}
+                            <td className="py-2.5 px-3 text-slate-700 max-w-[140px] truncate" title={order.workCenter || '-'}>
+                              {order.workCenter || '-'}
                             </td>
 
                             {/* Target */}

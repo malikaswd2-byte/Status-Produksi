@@ -1479,26 +1479,29 @@ export const UploadView: React.FC = () => {
                         ) : (
                           <span className="text-xs text-emerald-600 font-medium">Sedang Digunakan</span>
                         )}
-                        {batches.length > 1 && (
-                          <>
-                            <span className="text-slate-300">|</span>
-                            <button
-                              onClick={() => {
-                                if (window.confirm(`Hapus batch "${b.fileName}" beserta datanya?`)) {
-                                  deleteBatch(b.id);
-                                }
-                              }}
-                              className="text-xs text-rose-600 hover:text-rose-800 font-medium"
-                            >
-                              Hapus
-                            </button>
-                          </>
-                        )}
+                        <span className="text-slate-300">|</span>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`Hapus batch "${b.fileName}" beserta datanya?`)) {
+                              deleteBatch(b.id);
+                            }
+                          }}
+                          className="text-xs text-rose-600 hover:text-rose-800 font-medium"
+                        >
+                          Hapus
+                        </button>
                       </div>
                     </td>
                   </tr>
                 );
               })}
+              {batches.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="py-8 px-4 text-center text-xs text-slate-500">
+                    Belum ada riwayat batch upload Excel. Upload file Excel di atas untuk memulai.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
