@@ -66,6 +66,12 @@ const INITIAL_BATCH: UploadBatch = {
     routing: 'Routing/Display Name',
   },
   warnings: [],
+  newMOCount: 3,
+  updatedMOCount: 0,
+  newStyleCount: 3,
+  updatedStagesCount: 0,
+  unchangedRowsCount: 0,
+  conflictCount: 0,
 };
 
 const INITIAL_ORDERS: ManufacturingOrder[] = [
@@ -404,6 +410,11 @@ class LocalStoragePPICRepository implements IPPICRepository {
         status: (b.id === batchId ? 'active' : 'archived') as 'active' | 'archived',
       }));
       localStorage.setItem(STORAGE_KEYS.BATCHES, JSON.stringify(batches));
+
+      const batchOrders = localStorage.getItem(`${STORAGE_KEYS.ORDERS}_batch_${batchId}`);
+      if (batchOrders) {
+        localStorage.setItem(STORAGE_KEYS.ORDERS, batchOrders);
+      }
     } catch {
       // ignore
     }
@@ -414,7 +425,6 @@ class LocalStoragePPICRepository implements IPPICRepository {
     try {
       // 1. Get existing batches
       let batches = this.getBatches();
-      // If batch with same id exists, replace it, else prepend
       const existingIdx = batches.findIndex((b) => b.id === batch.id);
       if (existingIdx !== -1) {
         batches[existingIdx] = batch;
@@ -426,12 +436,9 @@ class LocalStoragePPICRepository implements IPPICRepository {
       localStorage.setItem(STORAGE_KEYS.BATCHES, JSON.stringify(batches));
       localStorage.setItem(STORAGE_KEYS.ACTIVE_BATCH_ID, batch.id);
 
-      // 2. Save orders
-      const allOrders = this.getOrders();
-      // Filter out previous orders for this batch to avoid duplicates
-      const remainingOrders = allOrders.filter((o) => o.batchId !== batch.id);
-      const updatedOrders = [...orders, ...remainingOrders];
-      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(updatedOrders));
+      // 2. Save active complete operational dataset & batch snapshot
+      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+      localStorage.setItem(`${STORAGE_KEYS.ORDERS}_batch_${batch.id}`, JSON.stringify(orders));
     } catch {
       // ignore
     }
@@ -443,8 +450,7 @@ class LocalStoragePPICRepository implements IPPICRepository {
       const batches = this.getBatches().filter((b) => b.id !== batchId);
       localStorage.setItem(STORAGE_KEYS.BATCHES, JSON.stringify(batches));
 
-      const orders = this.getOrders().filter((o) => o.batchId !== batchId);
-      localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
+      localStorage.removeItem(`${STORAGE_KEYS.ORDERS}_batch_${batchId}`);
 
       const activeId = localStorage.getItem(STORAGE_KEYS.ACTIVE_BATCH_ID);
       if (activeId === batchId && batches.length > 0) {
@@ -458,16 +464,12 @@ class LocalStoragePPICRepository implements IPPICRepository {
   getOrders(batchId?: string): ManufacturingOrder[] {
     if (!this.isStorageAvailable()) return INITIAL_ORDERS;
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.ORDERS);
-      const allOrders: ManufacturingOrder[] = data ? JSON.parse(data) : INITIAL_ORDERS;
       if (batchId) {
-        return allOrders.filter((o) => o.batchId === batchId);
+        const batchData = localStorage.getItem(`${STORAGE_KEYS.ORDERS}_batch_${batchId}`);
+        if (batchData) return JSON.parse(batchData);
       }
-      const activeBatch = this.getActiveBatch();
-      if (activeBatch) {
-        return allOrders.filter((o) => o.batchId === activeBatch.id);
-      }
-      return allOrders;
+      const data = localStorage.getItem(STORAGE_KEYS.ORDERS);
+      return data ? JSON.parse(data) : INITIAL_ORDERS;
     } catch {
       return INITIAL_ORDERS;
     }
@@ -596,6 +598,10 @@ class LocalStoragePPICRepository implements IPPICRepository {
       localStorage.setItem(STORAGE_KEYS.BATCHES, JSON.stringify([INITIAL_BATCH]));
       localStorage.setItem(STORAGE_KEYS.ACTIVE_BATCH_ID, INITIAL_BATCH_ID);
       localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(INITIAL_ORDERS));
+      localStorage.setItem(
+        `${STORAGE_KEYS.ORDERS}_batch_${INITIAL_BATCH_ID}`,
+        JSON.stringify(INITIAL_ORDERS)
+      );
       localStorage.setItem(
         STORAGE_KEYS.PRODUCTION_SCHEDULES,
         JSON.stringify(INITIAL_PRODUCTION_SCHEDULES)

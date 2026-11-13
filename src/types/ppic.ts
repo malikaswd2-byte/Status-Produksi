@@ -42,6 +42,44 @@ export interface ManufacturingOrder {
   customAttributes?: Record<string, any>;
 }
 
+export type MOActionType = 'insert' | 'update' | 'conflict' | 'unchanged';
+
+export interface StageDiff {
+  stageName: string;
+  workCenter: string;
+  oldActualQty?: number;
+  newActualQty?: number;
+  oldTargetQty?: number;
+  newTargetQty?: number;
+  isNew: boolean;
+  isUpdated: boolean;
+  isUnchanged: boolean;
+}
+
+export interface MOAnalysisItem {
+  moNumber: string;
+  style: string;
+  customer?: string;
+  action: MOActionType;
+  existingStyle?: string;
+  conflictReason?: string;
+  stageDiffs: StageDiff[];
+  incomingOrderCount: number;
+  existingOrderCount: number;
+}
+
+export interface UpsertAnalysisResult {
+  newMOCount: number;
+  updatedMOCount: number;
+  newStyleCount: number;
+  updatedStagesCount: number;
+  unchangedRowsCount: number;
+  conflictCount: number;
+  items: MOAnalysisItem[];
+  conflicts: MOAnalysisItem[];
+  resultingOrders: ManufacturingOrder[];
+}
+
 export interface UploadBatch {
   id: string;
   batchNumber: string;
@@ -55,6 +93,13 @@ export interface UploadBatch {
   columnMappings: Record<string, string>;
   warnings: string[];
   rawRowsSample?: any[];
+  // UPSERT metrics
+  newMOCount?: number;
+  updatedMOCount?: number;
+  newStyleCount?: number;
+  updatedStagesCount?: number;
+  unchangedRowsCount?: number;
+  conflictCount?: number;
 }
 
 export interface ProductionSchedule {
