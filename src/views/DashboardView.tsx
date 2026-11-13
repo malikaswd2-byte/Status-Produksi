@@ -136,7 +136,7 @@ export const DashboardView: React.FC = () => {
             </span>
             <span className="text-xs text-slate-400 font-medium">pcs</span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-1">Rencana akumulasi</p>
+          <p className="text-[11px] text-slate-500 mt-1">Target unik per Work Order</p>
         </div>
 
         {/* Output Aktual */}
@@ -152,7 +152,7 @@ export const DashboardView: React.FC = () => {
             <span className="text-xs text-slate-400 font-medium">pcs</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-medium mt-1">
-            Realisasi lapangan
+            Output tahap akhir MO
           </p>
         </div>
 

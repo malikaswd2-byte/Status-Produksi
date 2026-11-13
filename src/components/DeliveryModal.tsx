@@ -66,12 +66,13 @@ export const DeliveryModal: React.FC<DeliveryModalProps> = ({
     const matched = orders.find((o) => o.moNumber === selectedMo);
     if (matched) {
       setStyle(matched.style);
+      const orderQty = matched.originalQty ?? matched.targetQty;
       const summary = calculateDeliverySummary(
         matched.moNumber,
-        matched.targetQty,
+        orderQty,
         deliverySchedules
       );
-      setQuantity(summary.remainingQty > 0 ? summary.remainingQty : matched.targetQty);
+      setQuantity(summary.remainingQty > 0 ? summary.remainingQty : orderQty);
       if (matched.deliveryDate) setDeliveryDate(matched.deliveryDate);
     }
   };

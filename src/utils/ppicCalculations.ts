@@ -107,7 +107,94 @@ export function filterOrders(
 }
 
 /**
+ * Canonical unique Work Order identity key: MO (Display Name) + Style.
+ */
+function getWorkOrderKey(order: ManufacturingOrder): string {
+  const mo = (order.moNumber || '').trim() || '(MO Belum Ditetapkan)';
+  const style = (order.style || '').trim() || 'Unknown Style';
+  return `${mo}:::${style}`;
+}
+
+/**
+ * Resolve the single Work Order target quantity from Original Production Quantity (Col G),
+ * falling back to targetQty only when originalQty is not set.
+ */
+function getOrderTargetQty(order: ManufacturingOrder): number {
+  return Number(order.originalQty ?? order.targetQty) || 0;
+}
+
+/**
+ * Resolve stage ordering index based on STANDARD_PRODUCTION_STAGES (0..6).
+ */
+function getStageSortIndex(stageName: string): number {
+  const raw = (stageName || '').trim();
+  const matched = STANDARD_PRODUCTION_STAGES.findIndex(
+    (s) => s.toLowerCase() === raw.toLowerCase()
+  );
+  return matched !== -1 ? matched : 999;
+}
+
+/**
+ * Return the single target quantity for a group of rows belonging to the same Work Order (MO + Style).
+ * Original Production Quantity repeats across every stage row of the same MO, so it MUST NOT be summed across stages.
+ */
+function computeWorkOrderTarget(woOrders: ManufacturingOrder[]): number {
+  let target = 0;
+  for (const ord of woOrders) {
+    const val = getOrderTargetQty(ord);
+    if (val > 0) {
+      target = Math.max(target, val);
+    }
+  }
+  return target;
+}
+
+/**
+ * Return the final/furthest stage output & remaining qty for a single Work Order (MO + Style).
+ * Never sums Quantity across all 7 production stages.
+ */
+function computeWorkOrderFinalOutput(woOrders: ManufacturingOrder[]): {
+  actualQty: number;
+  remainingQty: number;
+} {
+  if (woOrders.length === 0) return { actualQty: 0, remainingQty: 0 };
+
+  let highestStageIdx = -1;
+  let finalStageName = '';
+  for (const ord of woOrders) {
+    const idx = getStageSortIndex(ord.productionStage);
+    const effectiveIdx = idx === 999 ? -0.5 : idx;
+    if (effectiveIdx >= highestStageIdx) {
+      highestStageIdx = effectiveIdx;
+      finalStageName = (ord.productionStage || '').trim();
+    }
+  }
+
+  const finalRows = woOrders.filter(
+    (o) => (o.productionStage || '').trim().toLowerCase() === finalStageName.toLowerCase()
+  );
+
+  const actualQty = finalRows.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+  const target = computeWorkOrderTarget(woOrders);
+  const hasExplicitRemaining = finalRows.some((o) => o.remainingQty !== undefined);
+  const remainingQty = hasExplicitRemaining
+    ? finalRows.reduce(
+        (sum, o) =>
+          sum +
+          (o.remainingQty !== undefined
+            ? Number(o.remainingQty)
+            : Math.max(0, getOrderTargetQty(o) - (Number(o.actualQty) || 0))),
+        0
+      )
+    : Math.max(0, target - actualQty);
+
+  return { actualQty, remainingQty };
+}
+
+/**
  * Aggregate style metrics without losing associated MO relations.
+ * Counts each distinct MO's Original Production Quantity ONCE (never multiplied across stages),
+ * and sums final-stage output per distinct MO.
  */
 export function aggregateStyles(orders: ManufacturingOrder[]): StyleSummary[] {
   const styleMap = new Map<string, ManufacturingOrder[]>();
@@ -129,8 +216,21 @@ export function aggregateStyles(orders: ManufacturingOrder[]): StyleSummary[] {
     );
     const stages = Array.from(new Set(orderList.map((o) => o.productionStage).filter((s) => Boolean(s) && s !== '-')));
 
-    const totalTargetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
-    const totalActualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+    // Group rows within this Style by unique MO (Display Name)
+    const moMap = new Map<string, ManufacturingOrder[]>();
+    for (const ord of orderList) {
+      const moKey = (ord.moNumber || '').trim() || '(MO Belum Ditetapkan)';
+      if (!moMap.has(moKey)) moMap.set(moKey, []);
+      moMap.get(moKey)!.push(ord);
+    }
+
+    let totalTargetQty = 0;
+    let totalActualQty = 0;
+    for (const moRows of moMap.values()) {
+      totalTargetQty += computeWorkOrderTarget(moRows);
+      totalActualQty += computeWorkOrderFinalOutput(moRows).actualQty;
+    }
+
     const progressPercent =
       totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
@@ -216,16 +316,23 @@ export function groupOrdersByMO(orders: ManufacturingOrder[]): MOGroup[] {
     const style = first.style || orderList.find((o) => o.style)?.style || '-';
     const routing = first.routing || orderList.find((o) => o.routing)?.routing || '-';
 
-    const totalTargetQty = sortedStages.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
-    const totalActualQty = sortedStages.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
-    const totalRemainingQty = sortedStages.reduce(
-      (sum, o) =>
-        sum +
-        (o.remainingQty !== undefined
-          ? Number(o.remainingQty)
-          : Math.max(0, (Number(o.targetQty) || 0) - (Number(o.actualQty) || 0))),
-      0
-    );
+    // Deduplicate target by (MO, Style) so Original Production Qty is counted once per Work Order
+    const woMap = new Map<string, ManufacturingOrder[]>();
+    for (const ord of sortedStages) {
+      const woKey = getWorkOrderKey(ord);
+      if (!woMap.has(woKey)) woMap.set(woKey, []);
+      woMap.get(woKey)!.push(ord);
+    }
+
+    let totalTargetQty = 0;
+    let totalActualQty = 0;
+    let totalRemainingQty = 0;
+    for (const woRows of woMap.values()) {
+      totalTargetQty += computeWorkOrderTarget(woRows);
+      const finalOut = computeWorkOrderFinalOutput(woRows);
+      totalActualQty += finalOut.actualQty;
+      totalRemainingQty += finalOut.remainingQty;
+    }
 
     const progressPercent =
       totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
@@ -292,8 +399,21 @@ export function aggregateWorkCenters(orders: ManufacturingOrder[]): WorkCenterSu
   for (const [name, orderList] of wcMap.entries()) {
     const uniqueMOs = new Set(orderList.map((o) => o.moNumber));
     const uniqueStyles = new Set(orderList.map((o) => o.style));
-    const totalTargetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
-    const totalActualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+
+    const woMap = new Map<string, ManufacturingOrder[]>();
+    for (const ord of orderList) {
+      const woKey = getWorkOrderKey(ord);
+      if (!woMap.has(woKey)) woMap.set(woKey, []);
+      woMap.get(woKey)!.push(ord);
+    }
+
+    let totalTargetQty = 0;
+    let totalActualQty = 0;
+    for (const woRows of woMap.values()) {
+      totalTargetQty += computeWorkOrderTarget(woRows);
+      totalActualQty += computeWorkOrderFinalOutput(woRows).actualQty;
+    }
+
     const progressPercent =
       totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 
@@ -354,9 +474,24 @@ export function aggregateProductionStages(orders: ManufacturingOrder[]): Product
     const uniqueMOs = new Set(orderList.map((o) => o.moNumber));
     const uniqueStyles = new Set(orderList.map((o) => o.style));
 
-    const targetQty = orderList.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
+    // Group by unique Work Order (MO + Style) within this stage so Original Production Qty
+    // is counted once per MO+Style even if split across multiple lines in the same stage.
+    const woMap = new Map<string, ManufacturingOrder[]>();
+    for (const ord of orderList) {
+      const woKey = getWorkOrderKey(ord);
+      if (!woMap.has(woKey)) woMap.set(woKey, []);
+      woMap.get(woKey)!.push(ord);
+    }
+
+    let targetQty = 0;
+    let originalQty = 0;
+    for (const woRows of woMap.values()) {
+      targetQty += computeWorkOrderTarget(woRows);
+      originalQty += woRows.reduce((max, r) => Math.max(max, Number(r.originalQty) || 0), 0);
+    }
+
+    // Quantity (Col H) is read separately for each stage and summed across rows of this stage
     const actualQty = orderList.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
-    const originalQty = orderList.reduce((sum, o) => sum + (Number(o.originalQty) || 0), 0);
     const quantity = orderList.reduce((sum, o) => sum + (Number(o.quantity) || 0), 0);
 
     const hasExplicitRemaining = orderList.some((o) => o.remainingQty !== undefined);
@@ -520,8 +655,22 @@ export function calculateKPIs(
     orders.map((o) => o.workCenter?.trim()).filter((wc): wc is string => Boolean(wc) && wc !== '-')
   );
 
-  const totalTargetQty = orders.reduce((sum, o) => sum + (Number(o.targetQty) || 0), 0);
-  const totalActualQty = orders.reduce((sum, o) => sum + (Number(o.actualQty) || 0), 0);
+  // Group by unique Work Order (MO + Style) so repeated Original Production Quantity across
+  // 7 stages is counted ONCE per MO+Style, and output reflects each MO's final stage.
+  const woMap = new Map<string, ManufacturingOrder[]>();
+  for (const ord of orders) {
+    const woKey = getWorkOrderKey(ord);
+    if (!woMap.has(woKey)) woMap.set(woKey, []);
+    woMap.get(woKey)!.push(ord);
+  }
+
+  let totalTargetQty = 0;
+  let totalActualQty = 0;
+  for (const woRows of woMap.values()) {
+    totalTargetQty += computeWorkOrderTarget(woRows);
+    totalActualQty += computeWorkOrderFinalOutput(woRows).actualQty;
+  }
+
   const progressPercent =
     totalTargetQty > 0 ? Math.round((totalActualQty / totalTargetQty) * 100) : 0;
 

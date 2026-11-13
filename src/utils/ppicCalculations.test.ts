@@ -83,22 +83,24 @@ const mockOrders: ManufacturingOrder[] = [
   },
 ];
 
-test('calculateKPIs computes correct unique counts and totals', () => {
+test('calculateKPIs computes correct unique counts and totals without stage duplication', () => {
   const kpis = calculateKPIs(mockOrders);
   assert.equal(kpis.totalMO, 5, 'Should have 5 unique MO numbers');
   assert.equal(kpis.totalStyle, 5, 'Should have 5 unique styles');
-  assert.equal(kpis.totalTargetQty, 3100, 'Total target is 500+500+300+400+800+600');
-  assert.equal(kpis.totalActualQty, 1650, 'Total actual is 450+500+100+0+400+200');
+  // MO-2026-001 (500 counted once) + MO-2026-002 (300) + MO-2026-003 (400) + MO-2026-004 (800) + MO-2026-005 (600) = 2600
+  assert.equal(kpis.totalTargetQty, 2600, 'Total target is 500+300+400+800+600 (MO-2026-001 counted once)');
+  // Final stage outputs: MO-2026-001 Sewing (450) + 100 + 0 + 400 + 200 = 1150
+  assert.equal(kpis.totalActualQty, 1150, 'Total actual uses final stage output per MO (450+100+0+400+200)');
 });
 
-test('aggregateStyles groups correctly without losing MO relations', () => {
+test('aggregateStyles groups correctly without losing MO relations or duplicating MO target', () => {
   const styles = aggregateStyles(mockOrders);
   assert.equal(styles.length, 5);
   const polo = styles.find((s) => s.style === 'Classic Polo');
   assert.ok(polo);
   assert.equal(polo?.moCount, 1);
-  assert.equal(polo?.totalTargetQty, 1000);
-  assert.equal(polo?.totalActualQty, 950);
+  assert.equal(polo?.totalTargetQty, 500);
+  assert.equal(polo?.totalActualQty, 450);
   assert.equal(polo?.workCenters.length, 2);
   assert.equal(polo?.orders.length, 2);
 });
@@ -495,3 +497,110 @@ test('Acceptance Criteria: QA 1702/1702 = 100%, empty Work Center "-" excluded f
   assert.equal(emptyDeliveries.remainingQty, 1702);
   assert.equal(emptyDeliveries.status, 'Not Scheduled');
 });
+
+test('Validation: 1 MO × 7 stages with Original Production Qty 675 yields total target 675 (NOT 4725) and independent stage outputs', () => {
+  const stageRows: Array<[string, number, number]> = [
+    ['Cutting', 675, 0],
+    ['Sewing', 600, 75],
+    ['Penerimaan Ironning', 500, 175],
+    ['Ironning', 450, 225],
+    ['QC Finishing', 400, 275],
+    ['QC Ukur', 350, 325],
+    ['QA', 300, 375],
+  ];
+
+  const orders: ManufacturingOrder[] = stageRows.map(([stage, qty, sisa], i) => ({
+    id: `val-${i}`,
+    moNumber: 'WH/MO/00675',
+    style: 'STYLE-675',
+    buyer: 'PT TEST',
+    workCenter: stage === 'QA' ? '-' : `${stage} Line 1`,
+    productionStage: stage,
+    originalQty: 675,
+    quantity: qty,
+    targetQty: 675,
+    actualQty: qty,
+    remainingQty: sisa,
+    batchId: 'b-val',
+  }));
+
+  const kpis = calculateKPIs(orders);
+  assert.equal(kpis.totalMO, 1);
+  assert.equal(kpis.totalTargetQty, 675, 'Total Target MO must be 675 pcs, NOT 675*7 = 4725');
+  assert.equal(kpis.totalActualQty, 300, 'Total Actual uses final stage (QA = 300), NOT sum of 7 stages');
+  assert.equal(kpis.progressPercent, 44);
+
+  const stages = aggregateProductionStages(orders);
+  assert.equal(stages.length, 7);
+  for (let i = 0; i < stageRows.length; i++) {
+    const [stageName, expectedQty, expectedSisa] = stageRows[i];
+    const s = stages.find((st) => st.stageName === stageName);
+    assert.ok(s, `Stage ${stageName} must exist`);
+    assert.equal(s.targetQty, 675, `Target ${stageName} must be 675`);
+    assert.equal(s.actualQty, expectedQty, `Actual ${stageName} must be ${expectedQty}`);
+    assert.equal(s.remainingQty, expectedSisa, `Sisa ${stageName} must be ${expectedSisa}`);
+    assert.equal(s.completionRate, Math.round((expectedQty / 675) * 100));
+  }
+
+  const moGroups = groupOrdersByMO(orders);
+  assert.equal(moGroups.length, 1);
+  assert.equal(moGroups[0].totalTargetQty, 675);
+  assert.equal(moGroups[0].totalActualQty, 300);
+  assert.equal(moGroups[0].totalRemainingQty, 375);
+
+  const styles = aggregateStyles(orders);
+  assert.equal(styles.length, 1);
+  assert.equal(styles[0].totalTargetQty, 675);
+  assert.equal(styles[0].totalActualQty, 300);
+});
+
+test('Validation: 2 distinct MOs (675 and 1702 across 7 stages each) yield total target 2377 pcs even with same Style', () => {
+  const stageNames = [
+    'Cutting',
+    'Sewing',
+    'Penerimaan Ironning',
+    'Ironning',
+    'QC Finishing',
+    'QC Ukur',
+    'QA',
+  ];
+
+  const makeMO = (moNumber: string, target: number, qaActual: number): ManufacturingOrder[] =>
+    stageNames.map((stage, idx) => ({
+      id: `${moNumber}-${idx}`,
+      moNumber,
+      style: 'WRP3 STAF 04',
+      buyer: 'ADARO ENERGY',
+      workCenter: stage === 'QA' ? '-' : `${stage} Line`,
+      productionStage: stage,
+      originalQty: target,
+      quantity: stage === 'QA' ? qaActual : target,
+      targetQty: target,
+      actualQty: stage === 'QA' ? qaActual : target,
+      remainingQty: stage === 'QA' ? target - qaActual : 0,
+      batchId: 'b-multi',
+    }));
+
+  const orders = [
+    ...makeMO('WH/MO/00675', 675, 300),
+    ...makeMO('WH/MO/01702', 1702, 1702),
+  ];
+
+  const kpis = calculateKPIs(orders);
+  assert.equal(kpis.totalMO, 2);
+  assert.equal(kpis.totalStyle, 1);
+  assert.equal(kpis.totalTargetQty, 2377, '675 + 1702 = 2377 (never multiplied by 7)');
+  assert.equal(kpis.totalActualQty, 2002, '300 + 1702 = 2002');
+
+  const stages = aggregateProductionStages(orders);
+  for (const s of stages) {
+    assert.equal(s.targetQty, 2377, `Stage ${s.stageName} target across 2 MOs must be 2377`);
+  }
+
+  const styles = aggregateStyles(orders);
+  assert.equal(styles.length, 1);
+  assert.equal(styles[0].moCount, 2);
+  assert.equal(styles[0].totalTargetQty, 2377);
+  assert.equal(styles[0].totalActualQty, 2002);
+});
+

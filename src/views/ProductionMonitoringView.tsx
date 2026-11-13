@@ -385,7 +385,7 @@ export const ProductionMonitoringView: React.FC = () => {
                                       {group.style}
                                     </span>
                                     <span className="text-[10px] text-slate-500 font-mono block whitespace-nowrap">
-                                      Order: {(group.stages[0]?.originalQty ?? group.stages[0]?.targetQty ?? 0).toLocaleString()} pcs
+                                      Order: {group.totalTargetQty.toLocaleString()} pcs
                                     </span>
                                   </div>
                                 </td>
